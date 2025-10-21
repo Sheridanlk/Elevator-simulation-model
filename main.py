@@ -6,27 +6,28 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QBrush, QColor, QPainter
 
+k = 2
 # ---- сценография ----
-FIELD_WIDTH = 200
-FIELD_HEIGHT = 600
+FIELD_WIDTH = 400 * k
+FIELD_HEIGHT = 600 * k
 
 NUM_FLOORS = 3
-FLOOR_HEIGHT = 100
-FLOOR_SPACING = 50
+FLOOR_HEIGHT = 100 * k
+FLOOR_SPACING = 50 * k
 
 # Кабина
-LIFT_WIDTH = 60
-LIFT_HEIGHT = 80
+LIFT_WIDTH = 60 * k
+LIFT_HEIGHT = 80 * k
 
 # Скорости
-NORMAL_SPEED = 2
-SLOW_SPEED = 1
+NORMAL_SPEED = 2 * k
+SLOW_SPEED = 1 * k
 
 # Дверь
 DOOR_SPEED_NORM = 0.03    # шаг по normalized позиции за тик
 
 # Лампы
-LAMP_RADIUS = 10
+LAMP_RADIUS = 10 * k
 
 
 # =================== МОДЕЛИ ===================
@@ -82,6 +83,11 @@ class LiftModel:
 
     def bottom_limit(self):
         return self.sensors[self.num_floors - 1][2]
+
+    def is_on_floor_center(self) -> bool:
+        # центральный датчик (второй в тройке top/center/bottom) активен на любом этаже?
+        active = self.get_active_floor_sensors()
+        return any(row[1] for row in active)
 
 
 class DoorModel:
@@ -141,7 +147,7 @@ class LiftView(QMainWindow):
         self.door_model = door_model
 
         self.setWindowTitle("Lift Simulator PyQt5 — fixed timers & lamps & door")
-        self.showMaximized()
+
 
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -159,13 +165,21 @@ class LiftView(QMainWindow):
 
         # панель управления справа
         ui_layout = QVBoxLayout()
+        ui_layout.setContentsMargins(6, 6, 6, 6)
+        ui_layout.setSpacing(8)
         layout.addLayout(ui_layout)
 
         # движение лифта
+        move_row = QVBoxLayout()
+        move_row.setSpacing(6)
+
         self.up_btn = QPushButton("Up")
         self.down_btn = QPushButton("Down")
-        ui_layout.addWidget(self.up_btn)
-        ui_layout.addWidget(self.down_btn)
+
+        move_row.addWidget(self.up_btn)
+        move_row.addWidget(self.down_btn)
+        ui_layout.addLayout(move_row)
+
         self.up_btn.pressed.connect(self.start_up)
         self.up_btn.released.connect(self.stop_move)
         self.down_btn.pressed.connect(self.start_down)
@@ -177,10 +191,16 @@ class LiftView(QMainWindow):
         ui_layout.addWidget(self.slow_chk)
 
         # дверь
+        door_row = QVBoxLayout()
+        door_row.setSpacing(6)
+
         self.open_btn = QPushButton("Open door")
         self.close_btn = QPushButton("Close door")
-        ui_layout.addWidget(self.open_btn)
-        ui_layout.addWidget(self.close_btn)
+
+        door_row.addWidget(self.open_btn)
+        door_row.addWidget(self.close_btn)
+        ui_layout.addLayout(door_row)
+
         self.open_btn.pressed.connect(self.start_open)
         self.open_btn.released.connect(self.stop_door)
         self.close_btn.pressed.connect(self.start_close)
@@ -235,14 +255,23 @@ class LiftView(QMainWindow):
         self.closing = False
 
         self.update_all()
+        self.showMaximized()
 
     # --- управление лифтом ---
     def start_up(self):
+        left_ok, _ = self.door_model.get_edge_sensors_active()
+        if not left_ok:
+            self.show_emergency("Запрещено движение: дверь не закрыта.")
+            return
         self.moving_up = True
         if not self.timer.isActive():
             self.timer.start(20)
 
     def start_down(self):
+        left_ok, _ = self.door_model.get_edge_sensors_active()
+        if not left_ok:
+            self.show_emergency("Запрещено движение: дверь не закрыта.")
+            return
         self.moving_down = True
         if not self.timer.isActive():
             self.timer.start(20)
@@ -257,6 +286,14 @@ class LiftView(QMainWindow):
 
     # --- управление дверью ---
     def start_open(self):
+        # запрещаем, если лифт в движении
+        if self.moving_up or self.moving_down:
+            self.show_emergency("Запрещено открывать дверь во время движения!")
+            return
+        # запрещаем, если не стоим точно на этаже (центральный датчик не активен)
+        if not self.lift_model.is_on_floor_center():
+            self.show_emergency("Запрещено открывать дверь: кабина не на этаже!")
+            return
         self.opening = True
         self.closing = False
         if not self.timer.isActive():
@@ -310,6 +347,9 @@ class LiftView(QMainWindow):
                 self.door_model.open_step()
             if self.closing and self.door_model.left_norm > 0.0:
                 self.door_model.close_step()
+
+
+
 
             # 4) перерисовка
             self.update_geometry()
