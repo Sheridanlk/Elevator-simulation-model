@@ -1,10 +1,12 @@
 import sys
+import time
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QGraphicsScene, QGraphicsView,
-    QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox, QMessageBox, QGraphicsRectItem
+    QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox, QMessageBox, QGraphicsRectItem, QLabel, QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QBrush, QColor, QPainter
+from PyQt5.QtCore import QTimer, Qt, QEasingCurve, QPoint
+from PyQt5.QtGui import QColor, QPainter, QFont, QPalette, QIcon, QBrush
+
 
 k = 2
 # ---- сценография ----
@@ -30,10 +32,8 @@ DOOR_SPEED_NORM = 0.03    # шаг по normalized позиции за тик
 LAMP_RADIUS = 10 * k
 
 
-# =================== МОДЕЛИ ===================
-
+# Модель лифта
 class LiftModel:
-    """Вертикальная логика лифта (этажи, скорость, позиция по Y)"""
     def __init__(self, num_floors, field_height, lift_height, floor_height, floor_spacing):
         self.num_floors = num_floors
         self.field_height = field_height
@@ -70,7 +70,6 @@ class LiftModel:
         self.current_speed = self.slow_speed if enabled else self.normal_speed
 
     def get_active_floor_sensors(self):
-        """true/false по 3 датчика на этаж: активен, когда СЕРЕДИНА кабины проходит уровень датчика"""
         lift_center = self.position
         tol = self.current_speed * 2
         active = []
@@ -85,18 +84,11 @@ class LiftModel:
         return self.sensors[self.num_floors - 1][2]
 
     def is_on_floor_center(self) -> bool:
-        # центральный датчик (второй в тройке top/center/bottom) активен на любом этаже?
         active = self.get_active_floor_sensors()
         return any(row[1] for row in active)
 
-
+# Модель дверей
 class DoorModel:
-    """
-    Одна створка, едет ВПРАВО.
-    Работаем с НОРМАЛИЗОВАННЫМ левым краем: left_norm ∈ [0..1]
-      0.0 -> левый край полотна на левом косяке (дверь закрыта, проём перекрыт)
-      1.0 -> левый край полотна на правом косяке (полотно полностью уехало вправо за пределы проёма)
-    """
     def __init__(self, opening_w, speed_norm=DOOR_SPEED_NORM):
         self.opening_w = opening_w             # ширина проёма (обычно = LIFT_WIDTH)
         self.leaf_w = opening_w                # ширина полотна = ширине проёма
@@ -114,11 +106,9 @@ class DoorModel:
             self.left_norm = 0.0
 
     def get_leaf_left_px(self, cabin_left_px: float) -> float:
-        """Левый край полотна в пикселях"""
         return cabin_left_px + self.left_norm * self.opening_w
 
     def get_edge_sensors_active(self):
-        """Датчики по краю: левый (закрыто) и правый (полностью открыто)"""
         tol = self.speed_norm * 2
         left_ok  = abs(self.left_norm - 0.0) <= tol   # «закрыто»
         right_ok = abs(self.left_norm - 1.0) <= tol   # «открыто»
@@ -138,15 +128,22 @@ class SensorLamp:
         self.item.setRect(x - LAMP_RADIUS, y - LAMP_RADIUS, LAMP_RADIUS * 2, LAMP_RADIUS * 2)
 
 
-# =================== VIEW / UI ===================
-
+# Отрисовка UI
 class LiftView(QMainWindow):
     def __init__(self, lift_model: LiftModel, door_model: DoorModel):
         super().__init__()
+
+        self._alarm_last = {}
+        self._alarm_cooldown = 1.5
+
+        self._toast = None
+        self._toast_timer = None
+        self._toast_anim = None
+
         self.lift_model = lift_model
         self.door_model = door_model
 
-        self.setWindowTitle("Lift Simulator PyQt5 — fixed timers & lamps & door")
+        self.setWindowTitle("Лифт")
 
 
         main_widget = QWidget()
@@ -157,8 +154,6 @@ class LiftView(QMainWindow):
         self.scene = QGraphicsScene(0, 0, FIELD_WIDTH, FIELD_HEIGHT)
         self.view = QGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.Antialiasing)
-
-        # ОСТАВЛЯЮ КАК ПРОСИЛ: центрирование
         self.view.setAlignment(Qt.AlignCenter | Qt.AlignCenter)
 
         layout.addWidget(self.view)
@@ -173,8 +168,8 @@ class LiftView(QMainWindow):
         move_row = QVBoxLayout()
         move_row.setSpacing(6)
 
-        self.up_btn = QPushButton("Up")
-        self.down_btn = QPushButton("Down")
+        self.up_btn = QPushButton("Вверх")
+        self.down_btn = QPushButton("Вниз")
 
         move_row.addWidget(self.up_btn)
         move_row.addWidget(self.down_btn)
@@ -186,7 +181,7 @@ class LiftView(QMainWindow):
         self.down_btn.released.connect(self.stop_move)
 
         # slow mode
-        self.slow_chk = QCheckBox("Slow Mode")
+        self.slow_chk = QCheckBox("Пониженная скорость")
         self.slow_chk.stateChanged.connect(self.toggle_slow)
         ui_layout.addWidget(self.slow_chk)
 
@@ -194,8 +189,8 @@ class LiftView(QMainWindow):
         door_row = QVBoxLayout()
         door_row.setSpacing(6)
 
-        self.open_btn = QPushButton("Open door")
-        self.close_btn = QPushButton("Close door")
+        self.open_btn = QPushButton("Открыть дверь")
+        self.close_btn = QPushButton("Закрыть дверь")
 
         door_row.addWidget(self.open_btn)
         door_row.addWidget(self.close_btn)
@@ -246,7 +241,7 @@ class LiftView(QMainWindow):
         self.door_closed_lamp = SensorLamp(self.scene, self.cabin_x + LIFT_WIDTH * 0.35, lamp_y)  # «закрыто»
         self.door_open_lamp   = SensorLamp(self.scene, self.cabin_x + LIFT_WIDTH * 0.65, lamp_y)  # «открыто»
 
-        # таймер
+        # Таймер
         self.timer = QTimer()
         self.timer.timeout.connect(self.tick)
         self.moving_up = False
@@ -257,12 +252,11 @@ class LiftView(QMainWindow):
         self.update_all()
         self.showMaximized()
 
-    # --- управление лифтом ---
+    # Управление лифтом
     def start_up(self):
         left_ok, _ = self.door_model.get_edge_sensors_active()
         if not left_ok:
-            self.show_emergency("Запрещено движение: дверь не закрыта.")
-            return
+            self.alarm_once("move_with_open_door", "Авария: движение с открытой дверью.")
         self.moving_up = True
         if not self.timer.isActive():
             self.timer.start(20)
@@ -270,8 +264,7 @@ class LiftView(QMainWindow):
     def start_down(self):
         left_ok, _ = self.door_model.get_edge_sensors_active()
         if not left_ok:
-            self.show_emergency("Запрещено движение: дверь не закрыта.")
-            return
+            self.alarm_once("move_with_open_door", "Авария: движение с открытой дверью.")
         self.moving_down = True
         if not self.timer.isActive():
             self.timer.start(20)
@@ -279,21 +272,16 @@ class LiftView(QMainWindow):
     def stop_move(self):
         self.moving_up = False
         self.moving_down = False
-        # НЕ останавливаем таймер здесь, его выключим только если ничто не движется (в tick())
 
     def toggle_slow(self, state):
         self.lift_model.toggle_slow(state == Qt.Checked)
 
-    # --- управление дверью ---
+    # Управление дверью
     def start_open(self):
-        # запрещаем, если лифт в движении
         if self.moving_up or self.moving_down:
-            self.show_emergency("Запрещено открывать дверь во время движения!")
-            return
-        # запрещаем, если не стоим точно на этаже (центральный датчик не активен)
+            self.alarm_once("open_while_moving", "Авария: попытка открыть дверь во время движения.")
         if not self.lift_model.is_on_floor_center():
-            self.show_emergency("Запрещено открывать дверь: кабина не на этаже!")
-            return
+            self.alarm_once("open_off_floor", "Авария: попытка открыть дверь вне этажа (центральный датчик не активен).")
         self.opening = True
         self.closing = False
         if not self.timer.isActive():
@@ -309,17 +297,88 @@ class LiftView(QMainWindow):
         self.opening = False
         self.closing = False
 
-    # --- аварийное окно (верх/низ этажей) ---
-    def show_emergency(self, text):
-        self.moving_up = self.moving_down = self.opening = self.closing = False
-        self.timer.stop()
-        QMessageBox.critical(self, "Авария", text)
+    # Окно с аварией
+    def alarm_once(self, key: str, text: str):
+        now = time.monotonic()
+        last = self._alarm_last.get(key, 0.0)
+        if now - last >= self._alarm_cooldown:
+            self._alarm_last[key] = now
+            self.show_toast(text)
 
-    # --- главный тик ---
+    def show_toast(self, text: str, msec: int = 2000):
+        # создаём или переиспользуем плавающий QLabel
+        if self._toast is None:
+            lbl = QLabel("", self)
+            lbl.setWindowFlags(
+                Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+            )
+            # Клики не блокируются — проходят сквозь плашку
+            lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            lbl.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            lbl.setMargin(10)
+            lbl.setWordWrap(True)
+            # Стиль: тёмная полупрозрачная плашка с округлением
+            lbl.setStyleSheet("""
+                QLabel {
+                    background: rgba(32,32,32,200);
+                    color: white;
+                    border-radius: 10px;
+                    font-size: 12pt;
+                }
+            """)
+            # Эффект прозрачности для плавного появления/исчезновения
+            eff = QGraphicsOpacityEffect(lbl)
+            lbl.setGraphicsEffect(eff)
+
+            self._toast = lbl
+            self._toast_timer = QTimer(self)
+            self._toast_timer.setSingleShot(True)
+            self._toast_timer.timeout.connect(self._fade_out)
+
+            # анимация прозрачности
+            from PyQt5.QtCore import QPropertyAnimation
+            self._toast_anim = QPropertyAnimation(eff, b"opacity", self)
+            self._toast_anim.setEasingCurve(QEasingCurve.InOutQuad)
+        else:
+            lbl = self._toast
+
+        # текст и размеры
+        lbl.setText(text)
+        lbl.adjustSize()
+        # ограничим ширину на случай длинных строк
+        maxw = int(self.width() * 0.5)
+        if lbl.width() > maxw:
+            lbl.setFixedWidth(maxw)
+            lbl.adjustSize()
+
+        # позиционирование — правый нижний угол окна, с отступами
+        margin = 14
+        x = self.width() - lbl.width() - margin
+        y = self.height() - lbl.height() - margin
+        lbl.move(x, y)
+
+        # мгновенно сделать видимым (opacity=1), показать и запустить таймер авто-закрытия
+        eff = lbl.graphicsEffect()
+        eff.setOpacity(1.0)
+        lbl.show()
+        lbl.raise_()
+
+        self._toast_timer.start(msec)
+
+    def _fade_out(self, msec: int = 350):
+        anim = self._toast_anim
+        eff = self._toast.graphicsEffect()
+        anim.stop()
+        anim.setDuration(msec)
+        anim.setStartValue(eff.opacity())
+        anim.setEndValue(0.0)
+        anim.finished.connect(self._toast.hide)
+        anim.start()
+
+    # Отрисовка за тик
     def tick(self):
         try:
-            prev_pos = self.lift_model.position
-
             # 1) вертикаль
             if self.moving_up:
                 self.lift_model.move_up()
@@ -330,26 +389,19 @@ class LiftView(QMainWindow):
             top_lim = self.lift_model.top_limit()
             bot_lim = self.lift_model.bottom_limit()
             if self.moving_up and self.lift_model.position <= top_lim:
-                self.lift_model.position = top_lim
                 self.update_geometry()
                 self.update_lamps()
-                self.show_emergency("Выход за верхний предел: сработал верхний аварийный датчик.")
-                return
+                self.alarm_once("going_beyond","Выход за верхний предел: сработал верхний аварийный датчик.")
             if self.moving_down and self.lift_model.position >= bot_lim:
-                self.lift_model.position = bot_lim
                 self.update_geometry()
                 self.update_lamps()
-                self.show_emergency("Выход за нижний предел: сработал нижний аварийный датчик.")
-                return
+                self.alarm_once("going_beyond", "Выход за нижний предел: сработал нижний аварийный датчик.")
 
             # 3) горизонталь (дверь)
             if self.opening and self.door_model.left_norm < 1.0:
                 self.door_model.open_step()
             if self.closing and self.door_model.left_norm > 0.0:
                 self.door_model.close_step()
-
-
-
 
             # 4) перерисовка
             self.update_geometry()
@@ -395,8 +447,8 @@ class LiftView(QMainWindow):
         self.update_lamps()
 
 
-# =================== запуск ===================
 
+# Точка входа
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     lift = LiftModel(NUM_FLOORS, FIELD_HEIGHT, LIFT_HEIGHT, FLOOR_HEIGHT, FLOOR_SPACING)
