@@ -115,7 +115,6 @@ class DoorModel:
         return left_ok, right_ok
 
 
-# =================== ВСПОМОГАТЕЛЬНАЯ ЛАМПА ===================
 
 class SensorLamp:
     def __init__(self, scene, x, y):
@@ -281,7 +280,7 @@ class LiftView(QMainWindow):
         if self.moving_up or self.moving_down:
             self.alarm_once("open_while_moving", "Авария: попытка открыть дверь во время движения.")
         if not self.lift_model.is_on_floor_center():
-            self.alarm_once("open_off_floor", "Авария: попытка открыть дверь вне этажа (центральный датчик не активен).")
+            self.alarm_once("open_off_floor", "Авария: попытка открыть дверь вне этажа.")
         self.opening = True
         self.closing = False
         if not self.timer.isActive():
