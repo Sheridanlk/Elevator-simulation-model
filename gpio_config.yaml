@@ -1,0 +1,15 @@
+
+enable: false
+inputs:
+  up: 17
+  down: 27
+  open_door: 22
+  close_door: 23
+  slow_mode: 24
+outputs:
+  floor_sensors:
+    - [5, 6, 13]
+    - [19, 26, 16]
+    - [20, 21, 12]
+  cabin_buttons: [18, 25, 8]
+  floor_buttons: [7, 1, 0]

@@ -1,0 +1,39 @@
+---
+# Configuration for the lift simulation.  These values define the
+# dimensions of the field, floors, lift, door speed, and lamp radius.
+# The ``k`` multiplier scales all linear dimensions and speeds.  To change
+# the overall scale of the scene, adjust only ``k`` – all other
+# dimensions will be multiplied by it at runtime.
+
+# Global scale factor.  All lengths and speeds below are multiplied by this.
+k: 2
+
+# Field dimensions (in base units).  Will be multiplied by k.
+field:
+  width: 400
+  height: 600
+
+# Number of floors in the building.
+num_floors: 3
+
+# Dimensions of a single floor (in base units).
+floor_height: 100
+floor_spacing: 50
+
+# Lift (cabin) dimensions (in base units).
+lift:
+  width: 60
+  height: 80
+
+# Movement speeds for the lift (in base units per tick).  Speeds
+# are scaled by k.
+speeds:
+  normal: 2
+  slow: 1
+
+# Door opening speed (dimensionless fraction per tick).  This value is
+# independent of k because it represents a fraction of the door's travel.
+door_speed_norm: 0.03
+
+# Radius of the indicator lamps (in base units).  Will be multiplied by k.
+lamp_radius: 10
