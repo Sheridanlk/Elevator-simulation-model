@@ -45,7 +45,7 @@ class GPIOHandler:
         # Cache pin assignments
         outputs = self.config.get("outputs", {})
         self.floor_sensor_pins: List[List[int]] = outputs.get("floor_sensors", [])
-        self.door_sensor_pins: List[List[int]] = outputs.get("door_sensors", [])
+        self.door_sensor_pins: List[int] = outputs.get("door_sensors", [])
         self.cabin_button_pins: List[int] = outputs.get("cabin_buttons", [])
         self.floor_button_pins: List[int] = outputs.get("floor_buttons", [])
         inputs = self.config.get("inputs", {})
