@@ -316,15 +316,10 @@ class LiftView(QMainWindow):
             self.show_toast(text)
 
     def show_toast(self, text: str, msec: int = 2000) -> None:
-        # Create or reuse a floating QLabel to display transient messages
+        parent = self.centralWidget()
         if self._toast is None:
-            lbl = QLabel("", self)
-            lbl.setWindowFlags(
-                Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-            )
-            # Allow mouse clicks to pass through the label
+            lbl = QLabel("", parent)
             lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            lbl.setAttribute(Qt.WA_ShowWithoutActivating, True)
             lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             lbl.setMargin(10)
             lbl.setWordWrap(True)
@@ -332,7 +327,7 @@ class LiftView(QMainWindow):
             lbl.setStyleSheet(
                 """
                 QLabel {
-                    background: rgba(32,32,32,200);
+                    background: rgba(255, 0, 0);
                     color: white;
                     border-radius: 10px;
                     font-size: 12pt;
@@ -503,10 +498,6 @@ class LiftView(QMainWindow):
         # Update the button's checked appearance
         btn = self.cabin_buttons[idx]
         btn.setChecked(self.cabin_button_states[idx])
-        if self.cabin_button_states[idx]:
-            btn.setStyleSheet("background-color: #A6E3A1;")
-        else:
-            btn.setStyleSheet("background-color: #FFFFFF;")
         # Update GPIO outputs if handler available
         if self.gpio_handler is not None:
             try:
