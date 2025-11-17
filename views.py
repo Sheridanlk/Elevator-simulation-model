@@ -114,15 +114,6 @@ class LiftView(QMainWindow):
         for floor in range(self.lift_model.num_floors):
             btn = QPushButton(f"Этаж {floor + 1}")
             btn.setCheckable(True)
-            btn.setStyleSheet("""
-                   QPushButton {
-                       background-color: #CCCCCC;
-                   }
-                   QPushButton:checked {
-                       background-color: #A6E3A1;
-                   }
-               """)
-
             btn.clicked.connect(partial(self.on_cabin_button_clicked, floor))
             cab_layout.addWidget(btn)
             self.cabin_buttons.append(btn)
@@ -512,6 +503,10 @@ class LiftView(QMainWindow):
         # Update the button's checked appearance
         btn = self.cabin_buttons[idx]
         btn.setChecked(self.cabin_button_states[idx])
+        if self.cabin_button_states[idx]:
+            btn.setStyleSheet("background-color: #A6E3A1;")
+        else:
+            btn.setStyleSheet("background-color: #FFFFFF;")
         # Update GPIO outputs if handler available
         if self.gpio_handler is not None:
             try:

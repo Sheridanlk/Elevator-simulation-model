@@ -60,7 +60,6 @@ class GPIOHandler:
         self._setup_done = False
 
     def setup(self) -> None:
-        """Initialise GPIO pins according to the configuration."""
         if not self.enabled:
             return
         if self._setup_done:
@@ -93,7 +92,6 @@ class GPIOHandler:
         self._setup_done = True
 
     def cleanup(self) -> None:
-        """Clean up GPIO pins on application exit."""
         if self.enabled:
             try:
                 self.gpio.cleanup()
@@ -118,22 +116,27 @@ class GPIOHandler:
         if not self.enabled:
             return
         try:
-            for pair in self.door_sensor_pins:
-                # pair[0] — пин «дверь закрыта», pair[1] — «дверь открыта»
-                if len(pair) > 0 and pair[0] is not None:
-                    self.gpio.output(
-                        pair[0],
-                        self.gpio.HIGH if closed_ok else self.gpio.LOW,
-                    )
-                if len(pair) > 1 and pair[1] is not None:
-                    self.gpio.output(
-                        pair[1],
-                        self.gpio.HIGH if open_ok else self.gpio.LOW,
-                    )
+            pins = self.door_sensor_pins
+            if not pins:
+                return
+
+            closed_pin = pins[0]
+            open_pin = pins[1] if len(pins) > 1 else None
+
+            if closed_pin is not None:
+                self.gpio.output(
+                    closed_pin,
+                    self.gpio.HIGH if closed_ok else self.gpio.LOW,
+                )
+            if open_pin is not None:
+                self.gpio.output(
+                    open_pin,
+                    self.gpio.HIGH if open_ok else self.gpio.LOW,
+                )
+
         except Exception as e:
             print("[GPIO] error in update_door_sensors:", e)
     def update_cabin_buttons(self, states: List[bool]) -> None:
-        """Set the cabin button outputs based on the provided boolean list."""
         if not self.enabled:
             return
         for idx, pin in enumerate(self.cabin_button_pins):
@@ -146,7 +149,6 @@ class GPIOHandler:
             self.gpio.output(pin, self.gpio.HIGH if state else self.gpio.LOW)
 
     def update_floor_buttons(self, states: List[bool]) -> None:
-        """Set the external floor call button outputs."""
         if not self.enabled:
             return
         for idx, pin in enumerate(self.floor_button_pins):
@@ -160,14 +162,6 @@ class GPIOHandler:
 
     # ------------------------ Input operations -------------------------
     def read_inputs(self) -> dict:
-        """Read and return the current values of all input pins.
-
-        Returns
-        -------
-        dict
-            A dictionary mapping each input name ("up", "down", etc.)
-            to a boolean value.  When GPIO is disabled, all values are False.
-        """
         values = {}
         if not self.enabled:
             for key in self.input_pins:
