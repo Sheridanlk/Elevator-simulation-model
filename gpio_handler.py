@@ -76,11 +76,11 @@ class GPIOHandler:
             if pin is not None:
                 self.gpio.setup(pin, self.gpio.OUT)
                 self.gpio.output(pin, self.gpio.LOW)
-        for pair in self.door_sensor_pins:
-            if len(pair) > 0 and pair[0] is not None:
-                self.gpio.setup(pair[0], self.gpio.OUT)
-            if len(pair) > 1 and pair[1] is not None:
-                self.gpio.setup(pair[1], self.gpio.OUT)
+        pins = self.door_sensor_pins
+        if pins:
+            self.gpio.setup(pins[0], self.gpio.OUT)
+            if len(pins) > 1:
+                self.gpio.setup(pins[1], self.gpio.OUT)
         for pin in self.floor_button_pins:
             if pin is not None:
                 self.gpio.setup(pin, self.gpio.OUT)
