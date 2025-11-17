@@ -1,16 +1,3 @@
-"""
-GPIO abstraction layer for the lift simulation.
-
-This module provides a ``GPIOHandler`` class that wraps access to
-RPi.GPIO and exposes methods to set the state of sensors and buttons
-configured in the GPIO configuration.  When GPIO is disabled or
-RPi.GPIO is unavailable, the handler falls back to a dummy
-implementation that logs operations instead of touching hardware.
-
-The handler should be instantiated at application startup and can be
-used by the view or controller layers to update physical outputs.
-"""
-
 from typing import List, Optional, Tuple
 from gpio_config import GPIO_CONFIG
 
@@ -49,25 +36,16 @@ except Exception:
 
 
 class GPIOHandler:
-    """Wrapper around RPi.GPIO providing high-level operations for the lift."""
 
     def __init__(self, config: Optional[dict] = None) -> None:
-        """
-        Initialise the handler from the provided configuration.  If
-        ``config`` is None, the global ``GPIO_CONFIG`` is used.
-
-        Parameters
-        ----------
-        config: dict, optional
-            GPIO configuration dictionary.  If omitted, the loader
-            ``gpio_config.GPIO_CONFIG`` is used.
-        """
         self.config = config or GPIO_CONFIG
         self.enabled: bool = bool(self.config.get("enable", False))
         self.gpio = _GPIO
+
         # Cache pin assignments
         outputs = self.config.get("outputs", {})
         self.floor_sensor_pins: List[List[int]] = outputs.get("floor_sensors", [])
+        self.door_sensor_pins: List[List[int]] = outputs.get("door_sensors", [])
         self.cabin_button_pins: List[int] = outputs.get("cabin_buttons", [])
         self.floor_button_pins: List[int] = outputs.get("floor_buttons", [])
         inputs = self.config.get("inputs", {})
@@ -99,6 +77,11 @@ class GPIOHandler:
             if pin is not None:
                 self.gpio.setup(pin, self.gpio.OUT)
                 self.gpio.output(pin, self.gpio.LOW)
+        for pair in self.door_sensor_pins:
+            if len(pair) > 0 and pair[0] is not None:
+                self.gpio.setup(pair[0], self.gpio.OUT)
+            if len(pair) > 1 and pair[1] is not None:
+                self.gpio.setup(pair[1], self.gpio.OUT)
         for pin in self.floor_button_pins:
             if pin is not None:
                 self.gpio.setup(pin, self.gpio.OUT)
@@ -119,29 +102,36 @@ class GPIOHandler:
 
     # ------------------------ Output operations -------------------------
     def update_floor_sensors(self, states: List[List[bool]]) -> None:
-        """Set the floor sensor outputs according to the provided state matrix.
-
-        Parameters
-        ----------
-        states: list of list of bool
-            A 2D list matching the structure of ``floor_sensor_pins``.
-            Each boolean controls the corresponding GPIO pin: True
-            drives the pin HIGH, False drives it LOW.  If a pin is
-            ``None`` or missing, it is skipped.
-        """
         if not self.enabled:
             return
         for floor_idx, row in enumerate(self.floor_sensor_pins):
             for sensor_idx, pin in enumerate(row):
                 if pin is None:
                     continue
-                # Determine the desired state; default to False if missing
                 try:
                     state = states[floor_idx][sensor_idx]
                 except Exception:
                     state = False
                 self.gpio.output(pin, self.gpio.HIGH if state else self.gpio.LOW)
 
+    def update_door_sensors(self, closed_ok: bool, open_ok: bool) -> None:
+        if not self.enabled:
+            return
+        try:
+            for pair in self.door_sensor_pins:
+                # pair[0] — пин «дверь закрыта», pair[1] — «дверь открыта»
+                if len(pair) > 0 and pair[0] is not None:
+                    self.gpio.output(
+                        pair[0],
+                        self.gpio.HIGH if closed_ok else self.gpio.LOW,
+                    )
+                if len(pair) > 1 and pair[1] is not None:
+                    self.gpio.output(
+                        pair[1],
+                        self.gpio.HIGH if open_ok else self.gpio.LOW,
+                    )
+        except Exception as e:
+            print("[GPIO] error in update_door_sensors:", e)
     def update_cabin_buttons(self, states: List[bool]) -> None:
         """Set the cabin button outputs based on the provided boolean list."""
         if not self.enabled:

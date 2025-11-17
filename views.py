@@ -1,16 +1,3 @@
-"""
-Graphical user interface for the lift simulation.
-
-This module contains the PyQt-based ``LiftView`` class, which
-visualises the state of a ``LiftModel`` and ``DoorModel``.  It also
-includes a small ``SensorLamp`` helper for drawing indicator lights.
-
-The view is parameterised by a configuration dictionary (see
-``config.CONFIG``) that defines dimensions, speeds and other
-properties.  The view itself does not modify the models directly;
-instead, it invokes their methods in response to UI events.
-"""
-
 from typing import Tuple
 import time
 from PyQt5.QtWidgets import (
@@ -127,6 +114,15 @@ class LiftView(QMainWindow):
         for floor in range(self.lift_model.num_floors):
             btn = QPushButton(f"Этаж {floor + 1}")
             btn.setCheckable(True)
+            btn.setStyleSheet("""
+                   QPushButton {
+                       background-color: #CCCCCC;
+                   }
+                   QPushButton:checked {
+                       background-color: #A6E3A1;
+                   }
+               """)
+
             btn.clicked.connect(partial(self.on_cabin_button_clicked, floor))
             cab_layout.addWidget(btn)
             self.cabin_buttons.append(btn)
@@ -497,9 +493,11 @@ class LiftView(QMainWindow):
         if self.gpio_handler is not None:
             try:
                 self.gpio_handler.update_floor_sensors(active_floor)
+                self.gpio_handler.update_door_sensors(left_ok, right_ok)
             except Exception:
                 # Ignore GPIO errors in GUI context
                 pass
+
 
     def update_all(self) -> None:
         self.update_geometry()
@@ -509,11 +507,6 @@ class LiftView(QMainWindow):
     # Cabin button handling
     # --------------------------------------------------------------
     def on_cabin_button_clicked(self, idx: int) -> None:
-        """Handle clicks on the cabin floor buttons.
-
-        When a cabin button is clicked, its state is toggled and the
-        corresponding GPIO output is updated (if a handler is available).
-        """
         # Toggle the internal state
         self.cabin_button_states[idx] = not self.cabin_button_states[idx]
         # Update the button's checked appearance
@@ -530,7 +523,6 @@ class LiftView(QMainWindow):
     # Floor call button handling
     # --------------------------------------------------------------
     def _scene_mousePressEvent(self, event):
-        """Intercept mouse presses on the scene to handle floor call buttons."""
         pos = event.scenePos()
         # Check if the click was on one of the floor button items
         for item in self.floor_buttons_items:
@@ -545,7 +537,6 @@ class LiftView(QMainWindow):
         QGraphicsScene.mousePressEvent(self.scene, event)
 
     def on_floor_button_clicked(self, idx: int) -> None:
-        """Handle clicks on the external floor call buttons."""
         # Toggle state
         self.floor_button_states[idx] = not self.floor_button_states[idx]
         # Update button colour to reflect state

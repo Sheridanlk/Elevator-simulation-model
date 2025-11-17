@@ -1,18 +1,3 @@
-"""
-Entry point for the lift simulation.
-
-This script loads configuration from ``config.yaml``, constructs the
-data models for the lift and door, instantiates the PyQt GUI, and
-starts the application event loop.  The simulation can be run by
-executing this file directly with Python::
-
-    python main.py
-
-The functionality remains identical to the original monolithic
-implementation, but the code is now organised into separate modules
-for configuration, models and views.
-"""
-
 import sys
 from PyQt5.QtWidgets import QApplication
 
@@ -24,7 +9,6 @@ from gpio_handler import GPIOHandler
 
 
 def main() -> None:
-    """Start the lift simulation application."""
     app = QApplication(sys.argv)
     # Instantiate models with parameters from the configuration
     lift = LiftModel(
