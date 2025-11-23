@@ -265,6 +265,12 @@ class LiftView(QMainWindow):
         self.moving_up = False
         self.moving_down = False
 
+        # Флаги двери: отдельно от GUI и от GPIO
+        self.gui_opening = False
+        self.gui_closing = False
+        self.gpio_opening = False
+        self.gpio_closing = False
+        # итоговые флаги двери, которые использует tick()
         self.opening = False
         self.closing = False
 
@@ -291,6 +297,14 @@ class LiftView(QMainWindow):
         if (self.moving_up or self.moving_down) and not self.timer.isActive():
             self.timer.start(20)
 
+    def _update_door_flags(self) -> None:
+        """Пересчитать итоговые флаги двери из источников GUI и GPIO."""
+        self.opening = self.gui_opening or self.gpio_opening
+        self.closing = self.gui_closing or self.gpio_closing
+
+        # Если дверь начала двигаться — убедимся, что таймер запущен
+        if (self.opening or self.closing) and not self.timer.isActive():
+            self.timer.start(20)
     # --------------------------------------------------------------
     # Movement and door control event handlers
     # --------------------------------------------------------------
@@ -333,26 +347,29 @@ class LiftView(QMainWindow):
         self.lift_model.toggle_slow(self.gui_slow_enabled)
 
     def start_open(self) -> None:
+        # Эта функция вызывается ТОЛЬКО из GUI (кнопки на панели)
         if self.moving_up or self.moving_down:
             self.alarm_once(
                 "open_while_moving", "Авария: попытка открыть дверь во время движения."
             )
         if not self.lift_model.is_on_floor_center():
             self.alarm_once("open_off_floor", "Авария: попытка открыть дверь вне этажа.")
-        self.opening = True
-        self.closing = False
-        if not self.timer.isActive():
-            self.timer.start(20)
+
+        self.gui_opening = True
+        self.gui_closing = False
+        self._update_door_flags()
 
     def start_close(self) -> None:
-        self.closing = True
-        self.opening = False
-        if not self.timer.isActive():
-            self.timer.start(20)
+        # Тоже только GUI
+        self.gui_closing = True
+        self.gui_opening = False
+        self._update_door_flags()
 
     def stop_door(self) -> None:
-        self.opening = False
-        self.closing = False
+        # Отпустили GUI-кнопку — GUI больше не просит двигать дверь
+        self.gui_opening = False
+        self.gui_closing = False
+        self._update_door_flags()
 
     # --------------------------------------------------------------
     # Alarm and toast notifications
@@ -376,7 +393,7 @@ class LiftView(QMainWindow):
             lbl.setStyleSheet(
                 """
                 QLabel {
-                    background: rgba(255, 0, 0);
+                    background: rgba(255, 0, 0, 1);
                     color: white;
                     border-radius: 10px;
                     font-size: 12pt;
@@ -435,7 +452,7 @@ class LiftView(QMainWindow):
 
         inputs = self.gpio_handler.read_inputs()
 
-        # Имена ключей — как в gpio_handler.input_pins:
+        # Имена ключей — как в gpio_handler.input_pins
         move_up = bool(inputs.get("up", False))
         move_down = bool(inputs.get("down", False))
         slow = bool(inputs.get("slow_mode", False))
@@ -462,16 +479,34 @@ class LiftView(QMainWindow):
         # ---------- ДВЕРЬ от GPIO ----------
         if door_open or door_close:
             if door_open and not door_close:
-                if not self.opening:
-                    self.start_open()
+                # Команда "открыть" от ПЛК
+                if self.moving_up or self.moving_down:
+                    self.alarm_once(
+                        "open_while_moving",
+                        "Авария: попытка открыть дверь во время движения.",
+                    )
+                if not self.lift_model.is_on_floor_center():
+                    self.alarm_once(
+                        "open_off_floor",
+                        "Авария: попытка открыть дверь вне этажа.",
+                    )
+                self.gpio_opening = True
+                self.gpio_closing = False
             elif door_close and not door_open:
-                if not self.closing:
-                    self.start_close()
+                # Команда "закрыть" от ПЛК
+                self.gpio_closing = True
+                self.gpio_opening = False
             else:
-                self.stop_door()
+                # Оба входа активны или непонятное состояние — стоп двери
+                self.gpio_opening = False
+                self.gpio_closing = False
         else:
-            # Если по входам нет команд, дверью управляет GUI
-            pass
+            # Входы отпущены — ПЛК больше не управляет дверью
+            self.gpio_opening = False
+            self.gpio_closing = False
+
+        # Пересчитать итоговые флаги opening/closing
+        self._update_door_flags()
 
         # ---------- Пониженная скорость от GPIO ----------
         if slow:
