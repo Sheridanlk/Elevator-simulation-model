@@ -130,6 +130,11 @@ class LiftView(QMainWindow):
         move_layout.addWidget(self.down_btn)
         self.slow_chk = QCheckBox("Пониженная скорость")
         move_layout.addWidget(self.slow_chk)
+        # GUI-флаг (что хочет пользователь в интерфейсе)
+        self.gui_slow_enabled = False
+        # GPIO-флаг (что пришло с входа slow_mode)
+        self.gpio_slow_enabled = False
+        self.lift_model.toggle_slow(False)
         # Connect signals
         self.up_btn.pressed.connect(self.start_up)
         self.up_btn.released.connect(self.stop_move)
@@ -310,8 +315,22 @@ class LiftView(QMainWindow):
         self.gui_moving_down = False
         self._update_motion_flags()
 
-    def toggle_slow(self, state: int) -> None:
-        self.lift_model.toggle_slow(state == Qt.Checked)
+    def toggle_slow(self, state) -> None:
+        """Обработчик изменения чекбокса 'Пониженная скорость' из GUI."""
+        want_slow = (state == Qt.Checked)
+
+        # Если GPIO ВЫНУЖДАЕТ медленный ход — не даём GUI его выключать
+        if self.gpio_slow_enabled:
+            # Возвращаем чекбокс обратно в "галочку", если его пытались снять
+            self.slow_chk.blockSignals(True)
+            self.slow_chk.setChecked(True)
+            self.slow_chk.blockSignals(False)
+            # Модель уже должна быть в slow-режиме, просто выходим
+            return
+
+        # Здесь управляющим источником является GUI
+        self.gui_slow_enabled = want_slow
+        self.lift_model.toggle_slow(self.gui_slow_enabled)
 
     def start_open(self) -> None:
         if self.moving_up or self.moving_down:
@@ -440,9 +459,6 @@ class LiftView(QMainWindow):
         # Пересчитываем итоговое движение с учётом GUI-флагов
         self._update_motion_flags()
 
-        # ---------- Пониженная скорость ----------
-        self.lift_model.toggle_slow(slow)
-
         # ---------- ДВЕРЬ от GPIO ----------
         if door_open or door_close:
             if door_open and not door_close:
@@ -456,6 +472,34 @@ class LiftView(QMainWindow):
         else:
             # Если по входам нет команд, дверью управляет GUI
             pass
+
+        # ---------- Пониженная скорость от GPIO ----------
+        if slow:
+            # Аппаратный вход активен — форсируем медленный ход
+            if not self.gpio_slow_enabled:
+                self.gpio_slow_enabled = True
+
+                # Ставим чекбокс в "галочку" и блокируем его
+                self.slow_chk.blockSignals(True)
+                self.slow_chk.setChecked(True)
+                self.slow_chk.setEnabled(False)
+                self.slow_chk.blockSignals(False)
+
+                # Включаем медленную скорость в модели
+                self.lift_model.toggle_slow(True)
+        else:
+            # Вход slow_mode НЕ активен — аппаратного принуждения нет
+            if self.gpio_slow_enabled:
+                self.gpio_slow_enabled = False
+
+                # Разблокируем чекбокс, его состояние снова управляет моделью
+                self.slow_chk.blockSignals(True)
+                self.slow_chk.setEnabled(True)
+                self.slow_chk.setChecked(self.gui_slow_enabled)
+                self.slow_chk.blockSignals(False)
+
+                # Синхронизируем модель с тем, что хочет GUI
+                self.lift_model.toggle_slow(self.gui_slow_enabled)
 
     def tick(self) -> None:
         try:
