@@ -253,6 +253,13 @@ class LiftView(QMainWindow):
         self.opening = False
         self.closing = False
 
+        #timer for inputs
+        self.gpio_poll_timer = None
+        if self.gpio_handler is not None:
+            self.gpio_poll_timer = QTimer(self)
+            self.gpio_poll_timer.timeout.connect(self.poll_gpio_inputs)
+            self.gpio_poll_timer.start(50)  # опрос каждые 50 мс
+
         # Initial update and display
         self.update_all()
         self.showMaximized()
@@ -378,6 +385,64 @@ class LiftView(QMainWindow):
     # --------------------------------------------------------------
     # Main animation tick
     # --------------------------------------------------------------
+
+    def poll_gpio_inputs(self) -> None:
+        """Опрос дискретных входов Raspberry Pi и управление лифтом через них.
+
+        ВАЖНО: если на входах НЕТ команд, мы не трогаем флаги движения,
+        которые выставляет GUI (кнопки Вверх/Вниз).
+        """
+        if self.gpio_handler is None:
+            return
+
+        inputs = self.gpio_handler.read_inputs()
+
+        move_up = bool(inputs.get("move_up", False))
+        move_down = bool(inputs.get("move_down", False))
+        slow = bool(inputs.get("slow_mode", False))
+        door_open = bool(inputs.get("door_open", False))
+        door_close = bool(inputs.get("door_close", False))
+
+        # ---------- ДВИЖЕНИЕ ----------
+        if move_up or move_down:
+            # Есть команда с ПЛК — она рулит движением
+            if move_up and move_down:
+                # Обе линии активны — считаем это конфликтом и останавливаем
+                self.moving_up = False
+                self.moving_down = False
+            else:
+                self.moving_up = move_up
+                self.moving_down = move_down
+            # Если кто-то хочет двигаться — гарантируем, что таймер тиков крутится
+            if not self.timer.isActive():
+                self.timer.start(20)
+        else:
+            # ❗ На входах тишина — НЕ трогаем self.moving_up/self.moving_down.
+            # Пусть ими управляет GUI через start_up/start_down/stop_move.
+            pass
+
+        # ---------- Пониженная скорость ----------
+        # Тут всё просто: вход slow_mode просто дёргает модель.
+        self.lift_model.toggle_slow(slow)
+
+        # ---------- ДВЕРЬ ----------
+        # Логика похожа: если есть явная команда с ПЛК — используем её.
+        if door_open or door_close:
+            if door_open and not door_close:
+                # Команда открыть
+                if not self.opening:
+                    self.start_open()
+            elif door_close and not door_open:
+                # Команда закрыть
+                if not self.closing:
+                    self.start_close()
+            else:
+                # Оба входа активны или непонятное состояние — стоп двери
+                self.stop_door()
+        else:
+            # Входов нет — управление дверью остаётся за GUI-кнопками
+            pass
+
     def tick(self) -> None:
         try:
             # 1) Vertical movement
