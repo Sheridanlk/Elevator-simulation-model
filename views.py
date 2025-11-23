@@ -248,8 +248,18 @@ class LiftView(QMainWindow):
         # Timer for animation and movement
         self.timer = QTimer()
         self.timer.timeout.connect(self.tick)
+
+        # Флаги движения:
+        # от GUI (кнопки интерфейса)
+        self.gui_moving_up = False
+        self.gui_moving_down = False
+        # от GPIO (физические кнопки/ПЛК)
+        self.gpio_moving_up = False
+        self.gpio_moving_down = False
+        # итоговые флаги, которые использует tick()
         self.moving_up = False
         self.moving_down = False
+
         self.opening = False
         self.closing = False
 
@@ -264,6 +274,18 @@ class LiftView(QMainWindow):
         self.update_all()
         self.showMaximized()
 
+    def _update_motion_flags(self) -> None:
+        """Пересчитать итоговые флаги движения из источников GUI и GPIO."""
+        prev_up = self.moving_up
+        prev_down = self.moving_down
+
+        self.moving_up = self.gui_moving_up or self.gpio_moving_up
+        self.moving_down = self.gui_moving_down or self.gpio_moving_down
+
+        # Если раньше никто не двигался, а теперь есть движение — запускаем таймер
+        if (self.moving_up or self.moving_down) and not self.timer.isActive():
+            self.timer.start(20)
+
     # --------------------------------------------------------------
     # Movement and door control event handlers
     # --------------------------------------------------------------
@@ -271,21 +293,22 @@ class LiftView(QMainWindow):
         left_ok, _ = self.door_model.get_edge_sensors_active()
         if not left_ok:
             self.alarm_once("move_with_open_door", "Авария: движение с открытой дверью.")
-        self.moving_up = True
-        if not self.timer.isActive():
-            self.timer.start(20)
+        self.gui_moving_up = True
+        self.gui_moving_down = False
+        self._update_motion_flags()
 
     def start_down(self) -> None:
         left_ok, _ = self.door_model.get_edge_sensors_active()
         if not left_ok:
             self.alarm_once("move_with_open_door", "Авария: движение с открытой дверью.")
-        self.moving_down = True
-        if not self.timer.isActive():
-            self.timer.start(20)
+        self.gui_moving_down = True
+        self.gui_moving_up = False
+        self._update_motion_flags()
 
     def stop_move(self) -> None:
-        self.moving_up = False
-        self.moving_down = False
+        self.gui_moving_up = False
+        self.gui_moving_down = False
+        self._update_motion_flags()
 
     def toggle_slow(self, state: int) -> None:
         self.lift_model.toggle_slow(state == Qt.Checked)
@@ -387,46 +410,40 @@ class LiftView(QMainWindow):
     # --------------------------------------------------------------
 
     def poll_gpio_inputs(self) -> None:
-        """Опрос дискретных входов Raspberry Pi и управление лифтом через них.
-
-        ВАЖНО: если на входах НЕТ команд, мы не трогаем флаги движения,
-        которые выставляет GUI (кнопки Вверх/Вниз).
-        """
+        """Опрос дискретных входов Raspberry Pi и управление лифтом через них."""
         if self.gpio_handler is None:
             return
 
         inputs = self.gpio_handler.read_inputs()
 
-        # Имена ключей ДОЛЖНЫ совпадать с тем, что в GPIOHandler.input_pins:
-        # "up", "down", "open_door", "close_door", "slow_mode"
+        # Имена ключей — как в gpio_handler.input_pins:
         move_up = bool(inputs.get("up", False))
         move_down = bool(inputs.get("down", False))
         slow = bool(inputs.get("slow_mode", False))
         door_open = bool(inputs.get("open_door", False))
         door_close = bool(inputs.get("close_door", False))
 
-        # ---------- ДВИЖЕНИЕ ----------
+        # ---------- ДВИЖЕНИЕ от GPIO ----------
         if move_up or move_down:
-            # Есть команда с ПЛК — она рулит движением
             if move_up and move_down:
-                # Обе линии активны — считаем это конфликтом и останавливаем
-                self.moving_up = False
-                self.moving_down = False
+                # конфликт — никуда не едем
+                self.gpio_moving_up = False
+                self.gpio_moving_down = False
             else:
-                self.moving_up = move_up
-                self.moving_down = move_down
-            # Если кто-то хочет двигаться — гарантируем, что таймер тиков крутится
-            if not self.timer.isActive():
-                self.timer.start(20)
+                self.gpio_moving_up = move_up
+                self.gpio_moving_down = move_down
         else:
-            # На входах тишина — НЕ трогаем self.moving_up/self.moving_down.
-            # Пусть ими управляет GUI через start_up/start_down/stop_move.
-            pass
+            # Кнопки на входах отпущены — GPIO больше не задаёт движение
+            self.gpio_moving_up = False
+            self.gpio_moving_down = False
+
+        # Пересчитываем итоговое движение с учётом GUI-флагов
+        self._update_motion_flags()
 
         # ---------- Пониженная скорость ----------
         self.lift_model.toggle_slow(slow)
 
-        # ---------- ДВЕРЬ ----------
+        # ---------- ДВЕРЬ от GPIO ----------
         if door_open or door_close:
             if door_open and not door_close:
                 if not self.opening:
@@ -437,7 +454,7 @@ class LiftView(QMainWindow):
             else:
                 self.stop_door()
         else:
-            # Входов нет — управление дверью остаётся за GUI-кнопками
+            # Если по входам нет команд, дверью управляет GUI
             pass
 
     def tick(self) -> None:
