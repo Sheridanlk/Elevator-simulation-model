@@ -397,11 +397,13 @@ class LiftView(QMainWindow):
 
         inputs = self.gpio_handler.read_inputs()
 
-        move_up = bool(inputs.get("move_up", False))
-        move_down = bool(inputs.get("move_down", False))
+        # Имена ключей ДОЛЖНЫ совпадать с тем, что в GPIOHandler.input_pins:
+        # "up", "down", "open_door", "close_door", "slow_mode"
+        move_up = bool(inputs.get("up", False))
+        move_down = bool(inputs.get("down", False))
         slow = bool(inputs.get("slow_mode", False))
-        door_open = bool(inputs.get("door_open", False))
-        door_close = bool(inputs.get("door_close", False))
+        door_open = bool(inputs.get("open_door", False))
+        door_close = bool(inputs.get("close_door", False))
 
         # ---------- ДВИЖЕНИЕ ----------
         if move_up or move_down:
@@ -417,27 +419,22 @@ class LiftView(QMainWindow):
             if not self.timer.isActive():
                 self.timer.start(20)
         else:
-            # ❗ На входах тишина — НЕ трогаем self.moving_up/self.moving_down.
+            # На входах тишина — НЕ трогаем self.moving_up/self.moving_down.
             # Пусть ими управляет GUI через start_up/start_down/stop_move.
             pass
 
         # ---------- Пониженная скорость ----------
-        # Тут всё просто: вход slow_mode просто дёргает модель.
         self.lift_model.toggle_slow(slow)
 
         # ---------- ДВЕРЬ ----------
-        # Логика похожа: если есть явная команда с ПЛК — используем её.
         if door_open or door_close:
             if door_open and not door_close:
-                # Команда открыть
                 if not self.opening:
                     self.start_open()
             elif door_close and not door_open:
-                # Команда закрыть
                 if not self.closing:
                     self.start_close()
             else:
-                # Оба входа активны или непонятное состояние — стоп двери
                 self.stop_door()
         else:
             # Входов нет — управление дверью остаётся за GUI-кнопками
