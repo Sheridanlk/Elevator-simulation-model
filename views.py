@@ -108,15 +108,18 @@ class LiftView(QMainWindow):
         cab_layout = QVBoxLayout()
         cab_layout.setSpacing(4)
         cab_group.setLayout(cab_layout)
-        self.cabin_button_states = [False] * self.lift_model.num_floors
         from functools import partial
         self.cabin_buttons = []
         for floor in range(self.lift_model.num_floors):
             btn = QPushButton(f"Этаж {floor + 1}")
-            btn.setCheckable(True)
-            btn.clicked.connect(partial(self.on_cabin_button_clicked, floor))
+            btn.setCheckable(False)  # больше НЕ чекбокс
+            # серый фон по умолчанию — лампа
+            btn.setStyleSheet("background-color: #CCCCCC;")
+            # при Нажатии отправляем импульс на выход
+            btn.pressed.connect(partial(self.on_cabin_button_pressed, floor))
             cab_layout.addWidget(btn)
             self.cabin_buttons.append(btn)
+
         ui_layout.addWidget(cab_group)
 
         # 2) Cabin movement controls (up/down and slow mode)
@@ -535,6 +538,27 @@ class LiftView(QMainWindow):
 
                 # Синхронизируем модель с тем, что хочет GUI
                 self.lift_model.toggle_slow(self.gui_slow_enabled)
+        # ---------- ЛАМПЫ КНОПОК от ПЛК ----------
+        if self.gpio_handler is not None:
+            try:
+                cabin_lamps, floor_lamps = self.gpio_handler.read_button_lamps()
+            except Exception:
+                cabin_lamps, floor_lamps = [], []
+
+            # лампы кнопок в кабине
+            for idx, state in enumerate(cabin_lamps):
+                if idx < len(self.cabin_buttons):
+                    btn = self.cabin_buttons[idx]
+                    # зелёный если лампа активна, серый если нет
+                    btn.setStyleSheet(
+                        "background-color: #A6E3A1;" if state else "background-color: #CCCCCC;"
+                    )
+
+            # лампы кнопок на этажах
+            for idx, state in enumerate(floor_lamps):
+                if idx < len(self.floor_buttons_items):
+                    item = self.floor_buttons_items[idx]
+                    item.setBrush(QBrush(QColor("#A6E3A1" if state else "#CCCCCC")))
 
     def tick(self) -> None:
         try:
@@ -569,22 +593,6 @@ class LiftView(QMainWindow):
             self.update_geometry()
             self.update_lamps()
             active_floor_matrix = self.lift_model.get_active_floor_sensors()
-            for idx, row in enumerate(active_floor_matrix):
-                if row[1]:
-                    _, door_open_ok = self.door_model.get_edge_sensors_active()
-                    if door_open_ok:
-                        if self.floor_button_states[idx]:
-                            self.floor_button_states[idx] = False
-                            self.floor_buttons_items[idx].setBrush(QBrush(QColor("#CCCCCC")))
-                        # Сбросить кнопку в кабине, если она была нажата
-                        if self.cabin_button_states[idx]:
-                            self.cabin_button_states[idx] = False
-                            self.cabin_buttons[idx].setChecked(False)
-                        # Обновить состояния GPIO, если используется gpio_handler
-                        if self.gpio_handler:
-                            self.gpio_handler.update_floor_buttons(self.floor_button_states)
-                            self.gpio_handler.update_cabin_buttons(self.cabin_button_states)
-                    break  # выходим из цикла, т.к. кабина может быть на одном этаже одновременно
             # 5) Stop timer if nothing is moving
             if not (
                 self.moving_up
@@ -650,18 +658,14 @@ class LiftView(QMainWindow):
     # --------------------------------------------------------------
     # Cabin button handling
     # --------------------------------------------------------------
-    def on_cabin_button_clicked(self, idx: int) -> None:
-        # Toggle the internal state
-        self.cabin_button_states[idx] = not self.cabin_button_states[idx]
-        # Update the button's checked appearance
-        btn = self.cabin_buttons[idx]
-        btn.setChecked(self.cabin_button_states[idx])
-        # Update GPIO outputs if handler available
-        if self.gpio_handler is not None:
-            try:
-                self.gpio_handler.update_cabin_buttons(self.cabin_button_states)
-            except Exception:
-                pass
+    def on_cabin_button_pressed(self, idx: int) -> None:
+        """Кнопка в кабине: послать короткий импульс на выход RPi."""
+        if self.gpio_handler is None:
+            return
+
+        # краткий импульс HIGH -> LOW
+        self.gpio_handler.set_cabin_button_output(idx, True)
+        QTimer.singleShot(50, lambda: self.gpio_handler.set_cabin_button_output(idx, False))
 
     # --------------------------------------------------------------
     # Floor call button handling
@@ -681,20 +685,13 @@ class LiftView(QMainWindow):
         QGraphicsScene.mousePressEvent(self.scene, event)
 
     def on_floor_button_clicked(self, idx: int) -> None:
-        # Toggle state
-        self.floor_button_states[idx] = not self.floor_button_states[idx]
-        # Update button colour to reflect state
-        item = self.floor_buttons_items[idx]
-        if self.floor_button_states[idx]:
-            item.setBrush(QBrush(QColor("#A6E3A1")))  # Greenish when pressed
-        else:
-            item.setBrush(QBrush(QColor("#CCCCCC")))
-        # Update GPIO outputs
-        if self.gpio_handler is not None:
-            try:
-                self.gpio_handler.update_floor_buttons(self.floor_button_states)
-            except Exception:
-                pass
+        """Кнопка вызова на этаже: только импульс на выход, без latch."""
+        if self.gpio_handler is None:
+            return
+
+        # краткий импульс HIGH -> LOW
+        self.gpio_handler.set_floor_button_output(idx, True)
+        QTimer.singleShot(50, lambda: self.gpio_handler.set_floor_button_output(idx, False))
 
 
 __all__ = ["LiftView", "SensorLamp", "LAMP_RADIUS"]

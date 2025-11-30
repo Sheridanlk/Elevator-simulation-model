@@ -23,6 +23,8 @@ def load_gpio_config() -> Dict[str, Any]:
         "open_door": inputs.get("open_door"),
         "close_door": inputs.get("close_door"),
         "slow_mode": inputs.get("slow_mode"),
+        "cabin_button_lamps": inputs.get("cabin_button_lamps", []),
+        "floor_button_lamps": inputs.get("floor_button_lamps", []),
     }
     # Outputs
     outputs = raw.get("outputs", {})

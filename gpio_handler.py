@@ -42,12 +42,12 @@ class GPIOHandler:
         self.enabled: bool = bool(self.config.get("enable", False))
         self.gpio = _GPIO
 
-        # Cache pin assignments
         outputs = self.config.get("outputs", {})
         self.floor_sensor_pins: List[List[int]] = outputs.get("floor_sensors", [])
         self.door_sensor_pins: List[int] = outputs.get("door_sensors", [])
         self.cabin_button_pins: List[int] = outputs.get("cabin_buttons", [])
         self.floor_button_pins: List[int] = outputs.get("floor_buttons", [])
+
         inputs = self.config.get("inputs", {})
         self.input_pins = {
             "up": inputs.get("up"),
@@ -56,6 +56,10 @@ class GPIOHandler:
             "close_door": inputs.get("close_door"),
             "slow_mode": inputs.get("slow_mode"),
         }
+
+        self.cabin_lamp_input_pins: List[int] = inputs.get("cabin_button_lamps", [])
+        self.floor_lamp_input_pins: List[int] = inputs.get("floor_button_lamps", [])
+
         # Keep track of whether setup() has been called
         self._setup_done = False
 
@@ -85,8 +89,13 @@ class GPIOHandler:
             if pin is not None:
                 self.gpio.setup(pin, self.gpio.OUT)
                 self.gpio.output(pin, self.gpio.LOW)
+
         # Setup input pins with pull-down resistors (if defined)
         for key, pin in self.input_pins.items():
+            if pin is not None:
+                self.gpio.setup(pin, self.gpio.IN, pull_up_down=self.gpio.PUD_DOWN)
+
+        for pin in self.cabin_lamp_input_pins + self.floor_lamp_input_pins:
             if pin is not None:
                 self.gpio.setup(pin, self.gpio.IN, pull_up_down=self.gpio.PUD_DOWN)
         self._setup_done = True
@@ -97,6 +106,49 @@ class GPIOHandler:
                 self.gpio.cleanup()
             except Exception:
                 pass
+
+    def read_button_lamps(self) -> tuple[list[bool], list[bool]]:
+        """Считать состояния ламп кнопок (кабина и этажи) с входов ПЛК."""
+        if not self.enabled:
+            # В режиме заглушки считаем, что все лампы погашены
+            return [False] * len(self.cabin_lamp_input_pins), [False] * len(self.floor_lamp_input_pins)
+
+        cabin = []
+        for pin in self.cabin_lamp_input_pins:
+            if pin is None:
+                cabin.append(False)
+            else:
+                cabin.append(bool(self.gpio.input(pin)))
+
+        floor = []
+        for pin in self.floor_lamp_input_pins:
+            if pin is None:
+                floor.append(False)
+            else:
+                floor.append(bool(self.gpio.input(pin)))
+
+        return cabin, floor
+
+    # "Сырой" выход для кнопок кабины
+    def set_cabin_button_output(self, idx: int, state: bool) -> None:
+        if not self.enabled:
+            print(f"[GPIO dummy] cabin_button[{idx}] = {state}")
+            return
+        if 0 <= idx < len(self.cabin_button_pins):
+            pin = self.cabin_button_pins[idx]
+            if pin is not None:
+                self.gpio.output(pin, self.gpio.HIGH if state else self.gpio.LOW)
+
+    # "Сырой" выход для кнопок этажей
+    def set_floor_button_output(self, idx: int, state: bool) -> None:
+        if not self.enabled:
+            print(f"[GPIO dummy] floor_button[{idx}] = {state}")
+            return
+        if 0 <= idx < len(self.floor_button_pins):
+            pin = self.floor_button_pins[idx]
+            if pin is not None:
+                self.gpio.output(pin, self.gpio.HIGH if state else self.gpio.LOW)
+
 
     # ------------------------ Output operations -------------------------
     def update_floor_sensors(self, states: List[List[bool]]) -> None:
