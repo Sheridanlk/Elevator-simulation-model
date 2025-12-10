@@ -288,12 +288,6 @@ class LiftView(QMainWindow):
         self.update_all()
         self.showMaximized()
 
-    def set_button_color(self, button: QPushButton, color: str):
-        pal = button.palette()
-        pal.setColor(QPalette.Button, QColor(color))
-        button.setAutoFillBackground(True)
-        button.setPalette(pal)
-        button.update()
     def _update_motion_flags(self) -> None:
         """Пересчитать итоговые флаги движения из источников GUI и GPIO."""
         prev_up = self.moving_up
@@ -556,7 +550,16 @@ class LiftView(QMainWindow):
                 if idx < len(self.cabin_buttons):
                     btn = self.cabin_buttons[idx]
                     # зелёный если лампа активна, серый если нет
-                    self.set_button_color(btn, "#A6E3A1" if state else "#CCCCCC")
+                    btn.setStyleSheet(
+                        f"""
+                        QPushButton {{
+                            background-color: {'#A6E3A1' if state else '#CCCCCC'};
+                            border: none;
+                            color: black;
+                            font-weight: bold;
+                        }}
+                        """
+                    )
 
             # лампы кнопок на этажах
             for idx, state in enumerate(floor_lamps):
@@ -696,6 +699,7 @@ class LiftView(QMainWindow):
         # краткий импульс HIGH -> LOW
         self.gpio_handler.set_floor_button_output(idx, True)
         QTimer.singleShot(50, lambda: self.gpio_handler.set_floor_button_output(idx, False))
+
 
 
 
