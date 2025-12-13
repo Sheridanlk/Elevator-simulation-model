@@ -20,6 +20,7 @@ from PyQt5.QtGui import QColor, QPainter, QFont, QPalette, QIcon, QBrush
 
 from config import CONFIG
 from models import LiftModel, DoorModel
+from controller import LiftController
 
 
 # Expose lamp radius as a module-level constant for convenience
@@ -65,6 +66,15 @@ class LiftView(QMainWindow):
         self.config = config
         # Optional GPIO handler for driving real hardware
         self.gpio_handler = gpio_handler
+
+        # Create a central controller to manage logic for movement, door, sensors and GPIO.
+        # The controller will call back to alarm_once() for any safety warnings.
+        self.controller = LiftController(
+            self.lift_model,
+            self.door_model,
+            self.gpio_handler,
+            alarm_callback=self.alarm_once,
+        )
 
         # Cache frequently used configuration values
         self.field_width = config["field_width"]
@@ -133,11 +143,9 @@ class LiftView(QMainWindow):
         move_layout.addWidget(self.down_btn)
         self.slow_chk = QCheckBox("Пониженная скорость")
         move_layout.addWidget(self.slow_chk)
-        # GUI-флаг (что хочет пользователь в интерфейсе)
-        self.gui_slow_enabled = False
-        # GPIO-флаг (что пришло с входа slow_mode)
-        self.gpio_slow_enabled = False
-        self.lift_model.toggle_slow(False)
+        # Slow mode state is managed by the controller.  The checkbox will be
+        # synchronised based on controller.gui_slow_enabled and
+        # controller.gpio_slow_enabled in poll_gpio_inputs().
         # Connect signals
         self.up_btn.pressed.connect(self.start_up)
         self.up_btn.released.connect(self.stop_move)
@@ -260,25 +268,8 @@ class LiftView(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.tick)
 
-        # Флаги движения:
-        # от GUI (кнопки интерфейса)
-        self.gui_moving_up = False
-        self.gui_moving_down = False
-        # от GPIO (физические кнопки/ПЛК)
-        self.gpio_moving_up = False
-        self.gpio_moving_down = False
-        # итоговые флаги, которые использует tick()
-        self.moving_up = False
-        self.moving_down = False
-
-        # Флаги двери: отдельно от GUI и от GPIO
-        self.gui_opening = False
-        self.gui_closing = False
-        self.gpio_opening = False
-        self.gpio_closing = False
-        # итоговые флаги двери, которые использует tick()
-        self.opening = False
-        self.closing = False
+        # Movement and door flags are now managed by the controller.  The view
+        # no longer keeps its own copies of these flags.
 
         #timer for inputs
         self.gpio_poll_timer = None
@@ -291,91 +282,51 @@ class LiftView(QMainWindow):
         self.update_all()
         self.showMaximized()
 
-    def _update_motion_flags(self) -> None:
-        """Пересчитать итоговые флаги движения из источников GUI и GPIO."""
-        prev_up = self.moving_up
-        prev_down = self.moving_down
-
-        self.moving_up = self.gui_moving_up or self.gpio_moving_up
-        self.moving_down = self.gui_moving_down or self.gpio_moving_down
-
-        # Если раньше никто не двигался, а теперь есть движение — запускаем таймер
-        if (self.moving_up or self.moving_down) and not self.timer.isActive():
-            self.timer.start(20)
-
-    def _update_door_flags(self) -> None:
-        """Пересчитать итоговые флаги двери из источников GUI и GPIO."""
-        self.opening = self.gui_opening or self.gpio_opening
-        self.closing = self.gui_closing or self.gpio_closing
-
-        # Если дверь начала двигаться — убедимся, что таймер запущен
-        if (self.opening or self.closing) and not self.timer.isActive():
-            self.timer.start(20)
+    # Removed _update_motion_flags and _update_door_flags.  Movement and door
+    # flags are computed inside the LiftController.
     # --------------------------------------------------------------
     # Movement and door control event handlers
     # --------------------------------------------------------------
     def start_up(self) -> None:
-        left_ok, _ = self.door_model.get_edge_sensors_active()
-        if not left_ok:
-            self.alarm_once("move_with_open_door", "Авария: движение с открытой дверью.")
-        self.gui_moving_up = True
-        self.gui_moving_down = False
-        self._update_motion_flags()
+        """Handle pressing the 'up' button in the GUI."""
+        # Delegate to the controller, which performs safety checks and updates movement flags
+        self.controller.start_move_up()
+        # Ensure timer runs if any action is active
+        if self.controller.is_any_active() and not self.timer.isActive():
+            self.timer.start(20)
 
     def start_down(self) -> None:
-        left_ok, _ = self.door_model.get_edge_sensors_active()
-        if not left_ok:
-            self.alarm_once("move_with_open_door", "Авария: движение с открытой дверью.")
-        self.gui_moving_down = True
-        self.gui_moving_up = False
-        self._update_motion_flags()
+        """Handle pressing the 'down' button in the GUI."""
+        self.controller.start_move_down()
+        if self.controller.is_any_active() and not self.timer.isActive():
+            self.timer.start(20)
 
     def stop_move(self) -> None:
-        self.gui_moving_up = False
-        self.gui_moving_down = False
-        self._update_motion_flags()
+        """Handle releasing movement buttons in the GUI."""
+        self.controller.stop_move()
 
     def toggle_slow(self, state) -> None:
-        """Обработчик изменения чекбокса 'Пониженная скорость' из GUI."""
+        """Handle toggling the 'slow mode' checkbox in the GUI."""
         want_slow = (state == Qt.Checked)
-
-        # Если GPIO ВЫНУЖДАЕТ медленный ход — не даём GUI его выключать
-        if self.gpio_slow_enabled:
-            # Возвращаем чекбокс обратно в "галочку", если его пытались снять
-            self.slow_chk.blockSignals(True)
-            self.slow_chk.setChecked(True)
-            self.slow_chk.blockSignals(False)
-            # Модель уже должна быть в slow-режиме, просто выходим
-            return
-
-        # Здесь управляющим источником является GUI
-        self.gui_slow_enabled = want_slow
-        self.lift_model.toggle_slow(self.gui_slow_enabled)
+        # Delegate slow mode toggling to the controller.  If GPIO forces slow mode,
+        # this request will be ignored.
+        self.controller.toggle_slow_mode(want_slow)
 
     def start_open(self) -> None:
-        # Эта функция вызывается ТОЛЬКО из GUI (кнопки на панели)
-        if self.moving_up or self.moving_down:
-            self.alarm_once(
-                "open_while_moving", "Авария: попытка открыть дверь во время движения."
-            )
-        if not self.lift_model.is_on_floor_center():
-            self.alarm_once("open_off_floor", "Авария: попытка открыть дверь вне этажа.")
-
-        self.gui_opening = True
-        self.gui_closing = False
-        self._update_door_flags()
+        """Handle pressing the 'open door' button in the GUI."""
+        self.controller.start_open_door()
+        if self.controller.is_any_active() and not self.timer.isActive():
+            self.timer.start(20)
 
     def start_close(self) -> None:
-        # Тоже только GUI
-        self.gui_closing = True
-        self.gui_opening = False
-        self._update_door_flags()
+        """Handle pressing the 'close door' button in the GUI."""
+        self.controller.start_close_door()
+        if self.controller.is_any_active() and not self.timer.isActive():
+            self.timer.start(20)
 
     def stop_door(self) -> None:
-        # Отпустили GUI-кнопку — GUI больше не просит двигать дверь
-        self.gui_opening = False
-        self.gui_closing = False
-        self._update_door_flags()
+        """Handle releasing door control buttons in the GUI."""
+        self.controller.stop_door()
 
     # --------------------------------------------------------------
     # Alarm and toast notifications
@@ -452,160 +403,62 @@ class LiftView(QMainWindow):
     # --------------------------------------------------------------
 
     def poll_gpio_inputs(self) -> None:
-        """Опрос дискретных входов Raspberry Pi и управление лифтом через них."""
+        """Poll discrete GPIO inputs and update the UI accordingly."""
         if self.gpio_handler is None:
             return
 
-        inputs = self.gpio_handler.read_inputs()
+        # Delegate polling to the controller.  It will update its internal state and
+        # return the states of the cabin and floor button lamps.
+        cabin_lamps, floor_lamps = self.controller.poll_gpio_inputs()
 
-        # Имена ключей — как в gpio_handler.input_pins
-        move_up = bool(inputs.get("up", False))
-        move_down = bool(inputs.get("down", False))
-        slow = bool(inputs.get("slow_mode", False))
-        door_open = bool(inputs.get("open_door", False))
-        door_close = bool(inputs.get("close_door", False))
-
-        # ---------- ДВИЖЕНИЕ от GPIO ----------
-        if move_up or move_down:
-            if move_up and move_down:
-                # конфликт — никуда не едем
-                self.gpio_moving_up = False
-                self.gpio_moving_down = False
-            else:
-                self.gpio_moving_up = move_up
-                self.gpio_moving_down = move_down
+        # Update the slow mode checkbox based on controller state.  If GPIO forces
+        # slow mode, the checkbox is checked and disabled; otherwise it reflects
+        # the GUI-controlled slow state and remains enabled.
+        if self.controller.gpio_slow_enabled:
+            self.slow_chk.blockSignals(True)
+            self.slow_chk.setChecked(True)
+            self.slow_chk.setEnabled(False)
+            self.slow_chk.blockSignals(False)
         else:
-            # Кнопки на входах отпущены — GPIO больше не задаёт движение
-            self.gpio_moving_up = False
-            self.gpio_moving_down = False
+            self.slow_chk.blockSignals(True)
+            self.slow_chk.setEnabled(True)
+            self.slow_chk.setChecked(self.controller.gui_slow_enabled)
+            self.slow_chk.blockSignals(False)
 
-        # Пересчитываем итоговое движение с учётом GUI-флагов
-        self._update_motion_flags()
+        # Update cabin button lamp appearance based on input states
+        for idx, state in enumerate(cabin_lamps):
+            if idx < len(self.cabin_buttons):
+                btn = self.cabin_buttons[idx]
+                btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background-color: {'#A6E3A1' if state else '#CCCCCC'};
+                        border: none;
+                        color: black;
+                        font-weight: bold;
+                    }}
+                    """
+                )
+        # Update floor call button lamp appearance
+        for idx, state in enumerate(floor_lamps):
+            if idx < len(self.floor_buttons_items):
+                item = self.floor_buttons_items[idx]
+                item.setBrush(QBrush(QColor("#A6E3A1" if state else "#CCCCCC")))
 
-        # ---------- ДВЕРЬ от GPIO ----------
-        if door_open or door_close:
-            if door_open and not door_close:
-                # Команда "открыть" от ПЛК
-                if self.moving_up or self.moving_down:
-                    self.alarm_once(
-                        "open_while_moving",
-                        "Авария: попытка открыть дверь во время движения.",
-                    )
-                if not self.lift_model.is_on_floor_center():
-                    self.alarm_once(
-                        "open_off_floor",
-                        "Авария: попытка открыть дверь вне этажа.",
-                    )
-                self.gpio_opening = True
-                self.gpio_closing = False
-            elif door_close and not door_open:
-                # Команда "закрыть" от ПЛК
-                self.gpio_closing = True
-                self.gpio_opening = False
-            else:
-                # Оба входа активны или непонятное состояние — стоп двери
-                self.gpio_opening = False
-                self.gpio_closing = False
-        else:
-            # Входы отпущены — ПЛК больше не управляет дверью
-            self.gpio_opening = False
-            self.gpio_closing = False
-
-        # Пересчитать итоговые флаги opening/closing
-        self._update_door_flags()
-
-        # ---------- Пониженная скорость от GPIO ----------
-        if slow:
-            # Аппаратный вход активен — форсируем медленный ход
-            if not self.gpio_slow_enabled:
-                self.gpio_slow_enabled = True
-
-                # Ставим чекбокс в "галочку" и блокируем его
-                self.slow_chk.blockSignals(True)
-                self.slow_chk.setChecked(True)
-                self.slow_chk.setEnabled(False)
-                self.slow_chk.blockSignals(False)
-
-                # Включаем медленную скорость в модели
-                self.lift_model.toggle_slow(True)
-        else:
-            # Вход slow_mode НЕ активен — аппаратного принуждения нет
-            if self.gpio_slow_enabled:
-                self.gpio_slow_enabled = False
-
-                # Разблокируем чекбокс, его состояние снова управляет моделью
-                self.slow_chk.blockSignals(True)
-                self.slow_chk.setEnabled(True)
-                self.slow_chk.setChecked(self.gui_slow_enabled)
-                self.slow_chk.blockSignals(False)
-
-                # Синхронизируем модель с тем, что хочет GUI
-                self.lift_model.toggle_slow(self.gui_slow_enabled)
-        # ---------- ЛАМПЫ КНОПОК от ПЛК ----------
-        if self.gpio_handler is not None:
-            try:
-                cabin_lamps, floor_lamps = self.gpio_handler.read_button_lamps()
-            except Exception:
-                cabin_lamps, floor_lamps = [], []
-
-            # лампы кнопок в кабине
-            for idx, state in enumerate(cabin_lamps):
-                if idx < len(self.cabin_buttons):
-                    btn = self.cabin_buttons[idx]
-                    # зелёный если лампа активна, серый если нет
-                    btn.setStyleSheet(
-                        f"""
-                        QPushButton {{
-                            background-color: {'#A6E3A1' if state else '#CCCCCC'};
-                            border: none;
-                            color: black;
-                            font-weight: bold;
-                        }}
-                        """
-                    )
-
-            # лампы кнопок на этажах
-            for idx, state in enumerate(floor_lamps):
-                if idx < len(self.floor_buttons_items):
-                    item = self.floor_buttons_items[idx]
-                    item.setBrush(QBrush(QColor("#A6E3A1" if state else "#CCCCCC")))
+        # Ensure the animation timer is running if any action is active
+        if self.controller.is_any_active() and not self.timer.isActive():
+            self.timer.start(20)
 
     def tick(self) -> None:
         try:
-            # Передвижение кабины
-            if self.moving_up:
-                self.lift_model.move_up()
-            if self.moving_down:
-                self.lift_model.move_down()
-            # Проверка концевых датчиков
-            top_lim = self.lift_model.top_limit()
-            bot_lim = self.lift_model.bottom_limit()
-            if self.moving_up and self.lift_model.position >= top_lim:
-                self.alarm_once(
-                    "going_beyond",
-                    "Выход за верхний предел: сработал верхний аварийный датчик.",
-                )
-            if self.moving_down and self.lift_model.position <= bot_lim:
-                self.alarm_once(
-                    "going_beyond",
-                    "Выход за нижний предел: сработал нижний аварийный датчик."
-                )
-            # Передвижение дверей
-            if self.opening and self.door_model.left_norm < 1.0:
-                self.door_model.open_step()
-            if self.closing and self.door_model.left_norm > 0.0:
-                self.door_model.close_step()
-            # Отрисовка интерфейса
+            # Delegate simulation advance to the controller.  It returns
+            # the current sensor states, though we do not need them here
+            self.controller.tick()
+            # Update the geometry and lamp indicators based on the updated models
             self.update_geometry()
             self.update_lamps()
-            active_floor_matrix = self.lift_model.get_active_floor_sensors()
-            # Остановка таймера, если отсутствует движение
-            if not (
-                self.moving_up
-                or self.moving_down
-                or self.opening
-                or self.closing
-            ):
+            # Stop the timer if no movement or door operation is active
+            if not self.controller.is_any_active():
                 self.timer.stop()
         except Exception as e:
             self.timer.stop()
@@ -637,20 +490,17 @@ class LiftView(QMainWindow):
         )
 
     def update_lamps(self) -> None:
-        active_floor = self.lift_model.get_active_floor_sensors()
+        """Update on-screen lamp indicators based on sensor states from controller."""
+        # Query sensor states from the controller
+        active_floor = self.controller.get_floor_sensor_states()
+        left_ok, right_ok = self.controller.get_door_sensor_states()
+        # Floor sensor lamps
         for floor_idx, row in enumerate(self.floor_lamps):
             for i, lamp in enumerate(row):
                 lamp.set_active(active_floor[floor_idx][i])
-        left_ok, right_ok = self.door_model.get_edge_sensors_active()
+        # Door indicator lamps
         self.door_closed_lamp.set_active(left_ok)
         self.door_open_lamp.set_active(right_ok)
-
-        if self.gpio_handler is not None:
-            try:
-                self.gpio_handler.update_floor_sensors(active_floor)
-                self.gpio_handler.update_door_sensors(left_ok, right_ok)
-            except Exception:
-                pass
 
 
     def update_all(self) -> None:
@@ -661,12 +511,16 @@ class LiftView(QMainWindow):
     # Cabin button handling
     # --------------------------------------------------------------
     def on_cabin_button_pressed(self, idx: int) -> None:
-        """Кнопка в кабине: послать короткий импульс на выход RPi."""
+        """Handle pressing a cabin button in the GUI.
+
+        Delegates the HIGH pulse to the controller and schedules a reset to
+        LOW after 50 ms.  The controller itself does not manage timers.
+        """
         if self.gpio_handler is None:
             return
-
-        # краткий импульс HIGH -> LOW
-        self.gpio_handler.set_cabin_button_output(idx, True)
+        # Send the high pulse via the controller
+        self.controller.cabin_button_pressed(idx)
+        # Schedule the low pulse after 50 ms
         QTimer.singleShot(50, lambda: self.gpio_handler.set_cabin_button_output(idx, False))
 
     # --------------------------------------------------------------
@@ -687,12 +541,14 @@ class LiftView(QMainWindow):
         QGraphicsScene.mousePressEvent(self.scene, event)
 
     def on_floor_button_clicked(self, idx: int) -> None:
-        """Кнопка вызова на этаже: только импульс на выход, без latch."""
+        """Handle clicking a floor call button on the scene.
+
+        Delegates the HIGH pulse to the controller and schedules a reset to
+        LOW after 50 ms.
+        """
         if self.gpio_handler is None:
             return
-
-        # краткий импульс HIGH -> LOW
-        self.gpio_handler.set_floor_button_output(idx, True)
+        self.controller.floor_button_clicked(idx)
         QTimer.singleShot(50, lambda: self.gpio_handler.set_floor_button_output(idx, False))
 
 
