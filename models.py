@@ -27,40 +27,33 @@ class LiftModel:
             - floor_spacing * (num_floors - 1)
         ) / 2
 
-        # Position of the cabin (vertical centre, Y coordinate from top down)
+        # Position of the cabin (vertical centre, Y coordinate from bottom up)
         self.position: float = field_height / 2
         self.normal_speed = normal_speed
         self.slow_speed = slow_speed
         self.current_speed = self.normal_speed
 
         # Precompute sensor positions for each floor (top, centre, bottom).
-        # Floors are indexed from 0 (bottom) to num_floors-1 (top).  The
-        # coordinate system starts at the top of the field, so to arrange
-        # floors from bottom to top we compute base_y from the bottom up.
+        # Floors are indexed from 0 (bottom) to num_floors-1 (top).
+        # Coordinate system here: origin at bottom of the field, Y increases upwards.
         self.sensors: List[List[float]] = []
         for floor in range(num_floors):
-            # Compute the top of this floor measured from the top of the scene.
-            # Bottom floor has index 0 and should be drawn above the bottom border spacing.
-            base_y = (
-                self.field_height
-                - self.border_spacing
-                - (floor + 1) * floor_height
-                - floor * floor_spacing
-            )
-            top = base_y
-            centre = base_y + floor_height / 2
-            bottom = base_y + floor_height
+            # Bottom of this floor measured from the bottom of the field
+            floor_bottom = self.border_spacing + floor * (floor_height + floor_spacing)
+            bottom = floor_bottom
+            centre = floor_bottom + floor_height / 2
+            top = floor_bottom + floor_height
             self.sensors.append([top, centre, bottom])
 
     def move_up(self) -> None:
-        self.position -= self.current_speed
+        self.position += self.current_speed
         # Clamp to the topmost position
-        self.position = max(self.position, self.lift_height / 2)
+        self.position = min(self.position, self.field_height - self.lift_height / 2)
 
     def move_down(self) -> None:
-        self.position += self.current_speed
+        self.position -= self.current_speed
         # Clamp to the bottommost position
-        self.position = min(self.position, self.field_height - self.lift_height / 2)
+        self.position = max(self.position, self.lift_height / 2)
 
     def toggle_slow(self, enabled: bool) -> None:
         self.current_speed = self.slow_speed if enabled else self.normal_speed

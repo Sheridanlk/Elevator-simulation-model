@@ -166,7 +166,8 @@ class LiftView(QMainWindow):
         self.floor_rects = []
         for floor in range(self.lift_model.num_floors):
             # Draw floor rectangles from bottom to top using sensor positions
-            base_y = self.lift_model.sensors[floor][0]
+            # Model stores Y from bottom; convert to scene Y (top-down)
+            base_y = self.field_height - self.lift_model.sensors[floor][0]
             rect = self.scene.addRect(
                 20,
                 base_y,
@@ -186,8 +187,9 @@ class LiftView(QMainWindow):
         call_x = 5  # X position from the left edge
         for floor in range(self.lift_model.num_floors):
             # Position call buttons based on sensor positions
-            base_y = self.lift_model.sensors[floor][0]
-            y = base_y + (self.lift_model.floor_height - button_h) / 2
+            centre_bottom = self.lift_model.sensors[floor][1]
+            centre_scene = self.field_height - centre_bottom
+            y = centre_scene - (button_h / 2)
             # Create a rectangle item and store its floor index via a custom property
             item = self.scene.addRect(
                 call_x,
@@ -212,7 +214,8 @@ class LiftView(QMainWindow):
 
         # Cabin rectangle
         self.cabin_x = (self.field_width - self.lift_width) / 2
-        self.cabin_y = self.lift_model.position - self.lift_height / 2
+        # Convert model centre-Y (bottom-origin) to scene top-left Y for cabin rect
+        self.cabin_y = self.field_height - (self.lift_model.position + self.lift_height / 2)
         self.cabin_item = self.scene.addRect(
             self.cabin_x,
             self.cabin_y,
@@ -233,9 +236,9 @@ class LiftView(QMainWindow):
         lamp_x = self.field_width - LAMP_RADIUS - 2
         for floor in range(self.lift_model.num_floors):
             # Place lamps based on sensor positions
-            top_y = self.lift_model.sensors[floor][0]
-            centre_y = self.lift_model.sensors[floor][1]
-            bottom_y = self.lift_model.sensors[floor][2]
+            top_y = self.field_height - self.lift_model.sensors[floor][0]
+            centre_y = self.field_height - self.lift_model.sensors[floor][1]
+            bottom_y = self.field_height - self.lift_model.sensors[floor][2]
             self.floor_lamps.append(
                 [
                     SensorLamp(self.scene, lamp_x, top_y),
@@ -569,38 +572,34 @@ class LiftView(QMainWindow):
 
     def tick(self) -> None:
         try:
-            # 1) Vertical movement
+            # Передвижение кабины
             if self.moving_up:
                 self.lift_model.move_up()
             if self.moving_down:
                 self.lift_model.move_down()
-            # 2) Floor limit sensors
+            # Проверка концевых датчиков
             top_lim = self.lift_model.top_limit()
             bot_lim = self.lift_model.bottom_limit()
-            if self.moving_up and self.lift_model.position <= top_lim:
-                self.update_geometry()
-                self.update_lamps()
+            if self.moving_up and self.lift_model.position >= top_lim:
                 self.alarm_once(
                     "going_beyond",
                     "Выход за верхний предел: сработал верхний аварийный датчик.",
                 )
-            if self.moving_down and self.lift_model.position >= bot_lim:
-                self.update_geometry()
-                self.update_lamps()
+            if self.moving_down and self.lift_model.position <= bot_lim:
                 self.alarm_once(
                     "going_beyond",
                     "Выход за нижний предел: сработал нижний аварийный датчик."
                 )
-            # 3) Door movement
+            # Передвижение дверей
             if self.opening and self.door_model.left_norm < 1.0:
                 self.door_model.open_step()
             if self.closing and self.door_model.left_norm > 0.0:
                 self.door_model.close_step()
-            # 4) Redraw
+            # Отрисовка интерфейса
             self.update_geometry()
             self.update_lamps()
             active_floor_matrix = self.lift_model.get_active_floor_sensors()
-            # 5) Stop timer if nothing is moving
+            # Остановка таймера, если отсутствует движение
             if not (
                 self.moving_up
                 or self.moving_down
@@ -618,7 +617,7 @@ class LiftView(QMainWindow):
     def update_geometry(self) -> None:
         # Cabin position based on model state
         self.cabin_x = (self.field_width - self.lift_width) / 2
-        self.cabin_y = self.lift_model.position - self.lift_height / 2
+        self.cabin_y = self.field_height - (self.lift_model.position + self.lift_height / 2)
         self.cabin_item.setRect(
             self.cabin_x,
             self.cabin_y,
@@ -638,23 +637,19 @@ class LiftView(QMainWindow):
         )
 
     def update_lamps(self) -> None:
-        # Floor sensors
         active_floor = self.lift_model.get_active_floor_sensors()
         for floor_idx, row in enumerate(self.floor_lamps):
             for i, lamp in enumerate(row):
                 lamp.set_active(active_floor[floor_idx][i])
-        # Door edge sensors
         left_ok, right_ok = self.door_model.get_edge_sensors_active()
         self.door_closed_lamp.set_active(left_ok)
         self.door_open_lamp.set_active(right_ok)
 
-        # Update GPIO outputs for floor sensors if a handler is provided
         if self.gpio_handler is not None:
             try:
                 self.gpio_handler.update_floor_sensors(active_floor)
                 self.gpio_handler.update_door_sensors(left_ok, right_ok)
             except Exception:
-                # Ignore GPIO errors in GUI context
                 pass
 
 
