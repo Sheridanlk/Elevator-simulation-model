@@ -5,11 +5,13 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVB
 from PyQt6.QtCore import QTimer
 from elevator_model import ElevatorModel
 from elevator_ui import ElevatorView, Toast
+from gpio_handler import GPIOHandler
 
 
 class ElevatorSimulator(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.gpio = GPIOHandler()
         self.setWindowTitle("Лифт-Симулятор ПЛК")
         #self.setStyleSheet("background-color: #1e1e1e; color: #ecf0f1;")
         self.active_alarms = {}
@@ -51,8 +53,19 @@ class ElevatorSimulator(QMainWindow):
         control_panel.setLayout(panel_layout)
         layout.addWidget(control_panel, stretch=0)
 
+        # Управление
+        control_group = QGroupBox("Управление")
+        control_layout = QVBoxLayout()
+        self.radio_manual = QRadioButton("Ручное")
+        self.radio_controller = QRadioButton("От контройлера")
+        self.radio_manual.setChecked(True)
+
+        for r in [self.radio_manual, self.radio_controller]:
+            control_layout.addWidget(r)
+        control_group.setLayout(control_layout)
+
         # Кабина
-        lift_group = QGroupBox("Кабина")
+        self.lift_group = QGroupBox("Кабина")
         lift_layout = QVBoxLayout()
         self.radio_up = QRadioButton("Вверх")
         self.radio_stop = QRadioButton("Стоп")
@@ -61,10 +74,10 @@ class ElevatorSimulator(QMainWindow):
 
         for r in [self.radio_up, self.radio_stop, self.radio_down]:
             lift_layout.addWidget(r)
-        lift_group.setLayout(lift_layout)
+        self.lift_group.setLayout(lift_layout)
 
         # Двери
-        door_group = QGroupBox("Двери")
+        self.door_group = QGroupBox("Двери")
         door_layout = QVBoxLayout()
         self.radio_open = QRadioButton("Открыть")
         self.radio_d_stop = QRadioButton("Стоп")
@@ -73,10 +86,10 @@ class ElevatorSimulator(QMainWindow):
 
         for r in [self.radio_open, self.radio_d_stop, self.radio_close]:
             door_layout.addWidget(r)
-        door_group.setLayout(door_layout)
+        self.door_group.setLayout(door_layout)
 
         # Скорость кабины
-        speed_group = QGroupBox("Скорость кабины")
+        self.speed_group = QGroupBox("Скорость кабины")
         speed_layout = QVBoxLayout()
         self.radio_fast = QRadioButton("Нормальная")
         self.radio_slow = QRadioButton("Пониженная")
@@ -84,11 +97,12 @@ class ElevatorSimulator(QMainWindow):
 
         for r in [self.radio_fast, self.radio_slow]:
             speed_layout.addWidget(r)
-        speed_group.setLayout(speed_layout)
+        self.speed_group.setLayout(speed_layout)
 
-        panel_layout.addWidget(lift_group)
-        panel_layout.addWidget(speed_group)
-        panel_layout.addWidget(door_group)
+        panel_layout.addWidget(control_group)
+        panel_layout.addWidget(self.lift_group)
+        panel_layout.addWidget(self.speed_group)
+        panel_layout.addWidget(self.door_group)
 
 
         # Запуск цикла (50 раз в секунду)
@@ -98,15 +112,36 @@ class ElevatorSimulator(QMainWindow):
 
     def update_simulation(self):
         dt = 0.02  # 20 миллисекунд
-
+        self.lift_group.setEnabled(True)
+        self.door_group.setEnabled(True)
+        self.speed_group.setEnabled(True)
         # Читаем состояние кнопок
-        cmds = {
-            'up': self.radio_up.isChecked(),
-            'down': self.radio_down.isChecked(),
-            'low_speed': self.radio_slow.isChecked(),
-            'open': self.radio_open.isChecked(),
-            'close': self.radio_close.isChecked()
-        }
+        if self.radio_manual.isChecked():
+            cmds = {
+                'up': self.radio_up.isChecked(),
+                'down': self.radio_down.isChecked(),
+                'low_speed': self.radio_slow.isChecked(),
+                'open': self.radio_open.isChecked(),
+                'close': self.radio_close.isChecked()
+            }
+        else:
+            self.lift_group.setEnabled(False)
+            self.door_group.setEnabled(False)
+            self.speed_group.setEnabled(False)
+            cmds = self.gpio.read_inputs()
+
+
+        # Считаем физику
+        self.model.update(dt, cmds)
+
+        # Получаем датчики
+        sensors = self.model.get_sensors()
+
+        if self.radio_controller:
+            self.gpio.write_outputs(sensors)
+
+        # Отрисовываем
+        self.view.update_ui(sensors)
 
         current_faults = self.model.get_faults()
         for fault in list(self.active_alarms.keys()):
@@ -117,13 +152,6 @@ class ElevatorSimulator(QMainWindow):
             if fault not in self.active_alarms:
                 is_err = any(x in fault for x in ["КРИТ", "АВАРИЯ"])
                 self.active_alarms[fault] = Toast(self, fault, is_error=is_err)
-
-        # Считаем физику
-        self.model.update(dt, cmds)
-        # Получаем датчики
-        sensors = self.model.get_sensors()
-        # Отрисовываем
-        self.view.update_ui(sensors)
 
 
 if __name__ == "__main__":
