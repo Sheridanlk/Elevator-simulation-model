@@ -104,6 +104,19 @@ class ElevatorSimulator(QMainWindow):
         panel_layout.addWidget(self.speed_group)
         panel_layout.addWidget(self.door_group)
 
+        self.btn_reset = QPushButton("СБРОС СИСТЕМЫ (RESET)")
+        self.btn_reset.setStyleSheet("""
+            QPushButton { 
+                background-color: #2980b9; 
+                color: white; 
+                font-weight: bold; 
+                padding: 10px; 
+                border-radius: 5px; 
+            }
+            QPushButton:pressed { background-color: #3498db; }
+        """)
+        self.btn_reset.clicked.connect(self.reset_simulator)
+        panel_layout.addWidget(self.btn_reset)
 
         # Запуск цикла (50 раз в секунду)
         self.timer = QTimer()
@@ -152,6 +165,24 @@ class ElevatorSimulator(QMainWindow):
             if fault not in self.active_alarms:
                 is_err = any(x in fault for x in ["КРИТ", "АВАРИЯ"])
                 self.active_alarms[fault] = Toast(self, fault, is_error=is_err)
+
+    def reset_simulator(self):
+        self.model.velocity = 0
+        self.model.position = self.model.FLOORS[1]  # Возврат на 1 этаж
+        self.model.door_pos = 0  # Закрыть двери
+
+        for fault_text in list(self.active_alarms.keys()):
+            widget = self.active_alarms.pop(fault_text)
+            widget.deleteLater()
+        self.active_alarms.clear()
+
+        self.radio_stop.setChecked(True)
+        self.radio_d_stop.setChecked(True)
+        self.radio_manual.setChecked(True)  # На всякий случай возвращаем в ручной режим
+
+        self.view.update_ui(self.model.get_sensors())
+
+        print("System Reset Performed")
 
 
 if __name__ == "__main__":
