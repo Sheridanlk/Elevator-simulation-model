@@ -104,7 +104,7 @@ class ElevatorSimulator(QMainWindow):
         panel_layout.addWidget(self.speed_group)
         panel_layout.addWidget(self.door_group)
 
-        self.btn_reset = QPushButton("СБРОС СИСТЕМЫ (RESET)")
+        self.btn_reset = QPushButton("СБРОС ПОЛОЖЕНИЯ")
         self.btn_reset.setStyleSheet("""
             QPushButton { 
                 background-color: #2980b9; 
