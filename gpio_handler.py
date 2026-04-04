@@ -14,19 +14,19 @@ class GPIOHandler:
             "open": 22, "close": 23,
             "low_speed": 24,
 
-            "l_c1": 2, "l_c2": 3, "l_c3": 4,  # Лампы кабин
-            "l_f1": 10, "l_f2": 9, "l_f3": 11  # Лампы этажей
+            "btn_c1": 5, "btn_c2": 25, "btn_c3": 8,
+            "btn_f1": 7, "btn_f2": 6, "btn_f3": 13
         }
 
         self.out_config = {
-            "f1_down": 5, "f1_mid": 6, "f1_up": 13,
-            "f2_down": 19, "f2_mid": 26, "f2_up": 16,
-            "f3_down": 20, "f3_mid": 21, "f3_up": 12,
+            "f1_down": 16, "f1_mid": 26, "f1_up": 20,
+            "f2_down": 21, "f2_mid": 12, "f2_up": 19,
+            "f3_down": 4, "f3_mid": 18, "f3_up": 11,
 
             "vko": 14, "vkz": 15,
 
-            "btn_c1": 18, "btn_c2": 25, "btn_c3": 8,
-            "btn_f1": 7, "btn_f2": 1, "btn_f3": 0
+            "l_c1": 2, "l_c2": 3, "l_c3": 0,  # Лампы кабин
+            "l_f1": 1, "l_f2": 9, "l_f3": 10  # Лампы этажей
         }
 
         self.inputs = {}
