@@ -1,11 +1,17 @@
-try:
-    from gpiozero import DigitalInputDevice, DigitalOutputDevice
-    from gpiozero.pins.mock import MockFactory
-    IS_RPI = True
-except (ImportError, RuntimeError):
-    IS_RPI = False
-    print("GPIO не найден. Работаем в режиме симуляции.")
+import os
+import platform
 
+if platform.system() == "Windows":
+    # Если на Windows - принудительно включаем режим имитации
+    os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
+    IS_RPI = False
+else:
+    # Если на Linux (Малинка) - используем современный драйвер
+    os.environ['GPIOZERO_PIN_FACTORY'] = 'lgpio'
+    IS_RPI = True
+
+
+from gpiozero import DigitalInputDevice, DigitalOutputDevice
 
 class GPIOHandler:
     def __init__(self):

@@ -2,9 +2,9 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, \
     QGroupBox, QRadioButton, QFrame
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from elevator_model import ElevatorModel
-from elevator_ui import ElevatorView, Toast
+from elevator_ui import ElevatorView, Toast, CabinPanel
 from gpio_handler import GPIOHandler
 
 
@@ -24,6 +24,9 @@ class ElevatorSimulator(QMainWindow):
         self.setCentralWidget(main_widget)
         layout = QHBoxLayout(main_widget)
 
+
+        self.cabin_panel = CabinPanel()
+        layout.addWidget(self.cabin_panel, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         # Лево: Графика
         layout.addWidget(self.view, stretch=3)
@@ -150,7 +153,7 @@ class ElevatorSimulator(QMainWindow):
         # Получаем датчики
         sensors = self.model.get_sensors()
 
-        if self.radio_controller:
+        if self.radio_controller.isChecked():
             self.gpio.write_outputs(sensors)
 
         # Отрисовываем

@@ -9,8 +9,13 @@ class ElevatorModel:
         self.speed = 0.0
         self.door_pos = 0.0
 
-        self.FLOORS = {1: 0.0, 2: 3.5, 3: 7.0}
-        self.OFFSET = 0.5
+        self.FLOORS = {1: 0.0, 2: 3, 3: 6}
+        self.OFFSET = 0.8
+        self.SENSOR_TYPES = [
+            ("up", self.OFFSET),  # Верхний (1 * 0.7)
+            ("mid", self.OFFSET * 0),  # Средний (0 * 0.7)
+            ("down", self.OFFSET * -1)  # Нижний  (-1 * 0.7)
+        ]
         self.SENSOR_WIDTH = 0.1
 
         self.CABIN_HEIGHT = 1.5
