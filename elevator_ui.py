@@ -1,8 +1,8 @@
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsItemGroup, \
-    QFrame, QVBoxLayout, QLabel, QPushButton, QWidget, QGraphicsTextItem
+    QFrame, QVBoxLayout, QLabel, QPushButton, QWidget, QGraphicsTextItem, QGraphicsPathItem
 from PyQt6.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, QRectF
-from PyQt6.QtGui import QPainter, QPen, QFont
+from PyQt6.QtGui import QPainter, QPen, QFont, QPainterPath
 from PyQt6.QtGui import QColor, QBrush
 
 
@@ -29,11 +29,18 @@ class ElevatorCabin(QGraphicsItemGroup):
         self.addToGroup(self.door_r)
 
         # Датчики дверей ВКО/ВКЗ
-        self.led_vko = QGraphicsEllipseItem(15, -15, 10, 10)
-        self.led_vkz = QGraphicsEllipseItem(55, -15, 10, 10)
-        for led in [self.led_vko, self.led_vkz]:
-            led.setBrush(QBrush(Qt.GlobalColor.black))
-            self.addToGroup(led)
+        # self.led_vko = QGraphicsEllipseItem(15, -15, 10, 10)
+        # self.led_vkz = QGraphicsEllipseItem(55, -15, 10, 10)
+
+        self.led_vko = Sensor("ВКО", width=35, height=20)
+        self.led_vko.setPos(70, 0)
+        self.addToGroup(self.led_vko)
+
+        self.led_vkz = Sensor("ВКЗ", width=35, height=20)
+        self.led_vkz.setPos(115, 0)
+        self.addToGroup(self.led_vkz)
+
+
 
     def set_door_position(self, value):
         offset = value * 75  # Ширина сдвига
@@ -41,8 +48,41 @@ class ElevatorCabin(QGraphicsItemGroup):
         self.door_r.setPos(offset, 0)
 
     def set_door_leds(self, vko, vkz):
-        self.led_vko.setBrush(QBrush(Qt.GlobalColor.cyan if vko else Qt.GlobalColor.black))
-        self.led_vkz.setBrush(QBrush(Qt.GlobalColor.red if vkz else Qt.GlobalColor.black))
+        self.led_vko.set_active(vko)
+        self.led_vkz.set_active(vkz)
+
+
+class Sensor(QGraphicsItemGroup):
+    def __init__(self, text, width=40, height=25):
+        super().__init__()
+
+        # Цвета (базовые)
+        self.off_color = QColor(107, 121, 16)  # Оливковый
+        self.on_color = QColor(173, 255, 47)  # Салатовый
+        self.black = QColor(0, 0, 0)
+
+        # 1. Рисуем подложку (скругленный прямоугольник)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, width, height), 7, 7)
+
+        self.bg = QGraphicsPathItem(path)
+        self.bg.setPen(QPen(self.black, 2))
+        self.bg.setBrush(QBrush(self.off_color))
+        self.addToGroup(self.bg)
+
+        # 2. Добавляем текст
+        self.label = QGraphicsTextItem(text)
+        self.label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self.label.setDefaultTextColor(self.black)
+
+        # Центрируем текст внутри прямоугольника
+        t_rect = self.label.boundingRect()
+        self.label.setPos((width - t_rect.width()) / 2, (height - t_rect.height()) / 2)
+        self.addToGroup(self.label)
+
+    def set_active(self, is_active):
+        color = self.on_color if is_active else self.off_color
+        self.bg.setBrush(QBrush(color))
 
 
 class ElevatorView(QGraphicsView):
@@ -91,8 +131,10 @@ class ElevatorView(QGraphicsView):
                 names = {
                     "up": "В", "mid": "С", "down": "Н"
                 }
-                grp, bg = self.create_sensor_label(f"{f}{names[s_type]}", x_pos, y_pos, LABEL_WIDTH, LABEL_HEIGHT)
-                self.floor_leds[f"f{f}_{s_type}"] = bg
+                sensor = Sensor(f"{f}{names[s_type]}")
+                sensor.setPos(x_pos, y_pos)
+                self.scene.addItem(sensor)
+                self.floor_leds[f"f{f}_{s_type}"] = sensor
 
     def update_ui(self, sensors):
         # Позиция кабины
@@ -107,69 +149,10 @@ class ElevatorView(QGraphicsView):
         # Состояние этажных датчиков
         for key, led in self.floor_leds.items():
             active = sensors.get(key, False)
-            led.setBrush(QBrush(QColor(173, 255, 47) if active else QColor(107, 121, 16)))
+            led.set_active(active)
 
     def resizeEvent(self, event):
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
-    def create_sensor_label(self, text_str, x, y, width=40, height=25):
-        # 1. Задаем цвета из твоего референса
-        olive_color = QColor(107, 121, 16)  # Примерный оливковый
-        black_color = QColor(0, 0, 0)
-        # Цвет для "зажженного" состояния (например, ярко-салатовый)
-        active_color = QColor(173, 255, 47)
-
-        # 2. Создаем фон (скругленный прямоугольник)
-        bg_rect = QGraphicsRectItem(0, 0, width, height)
-        # Настраиваем рамку ( Pen) - черная, толстая
-        bg_rect.setPen(QPen(black_color, 2))
-        # Настраиваем заливку (Brush) - оливковая
-        bg_rect.setBrush(QBrush(olive_color))
-
-        # 3. Делаем углы скругленными (магия Qt)
-        # Внутренний радиус скругления, попробуй 5 или 7 пикселей
-        bg_rect.setRect(0, 0, width, height)
-        bg_rect.setPos(x, y)  # Сначала ставим позицию группы, чтобы rect был в local (0,0)
-
-        # *Важно*: Чтобы setRect работал со скруглением, используй drawRoundedRect в painter,
-        # или, что проще для Items, используй QGraphicsPathItem.
-        # Давай сделаем через Path для идеального скругления:
-        from PyQt6.QtGui import QPainterPath
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, width, height), 5, 5)  # Радиус скругления 7
-
-        from PyQt6.QtWidgets import QGraphicsPathItem
-        bg_item = QGraphicsPathItem(path)
-        bg_item.setPen(QPen(black_color, 2))
-        bg_item.setBrush(QBrush(olive_color))
-        bg_item.setPos(x, y)
-
-        # 4. Создаем текст
-        text_item = QGraphicsTextItem(text_str)
-        # Шриф Arial, полужирный, размер подбираем (например, 10 или 12)
-        font = QFont("Arial", 11, QFont.Weight.Bold)
-        text_item.setFont(font)
-        text_item.setDefaultTextColor(black_color)
-
-        # 5. Центрируем текст внутри прямоугольника
-        text_rect = text_item.boundingRect()
-        # Вычисляем смещение, чтобы центр текста совпал с центром прямоугольника
-        off_x = (width - text_rect.width()) / 2
-        off_y = (height - text_rect.height()) / 2
-        text_item.setPos(x + off_x, y + off_y)
-
-        # 6. Группируем их, чтобы двигать как одно целое
-        label_group = QGraphicsItemGroup()
-        self.scene.addItem(label_group)  # Сначала добавляем группу в сцену
-
-        label_group.addToGroup(bg_item)
-        label_group.addToGroup(text_item)
-        label_group.setZValue(10)  # Выше шахты и кабины
-
-        # Сохраняем ссылку на фон, чтобы потом менять его цвет!
-        return label_group, bg_item
-
-
 
 
 
