@@ -278,7 +278,7 @@ class FloorPanel(QGraphicsItemGroup):
         super().__init__(parent)
         self.floor_num = floor_num
 
-        self.bg = QGraphicsRectItem(-15, -20, 80, 120)
+        self.bg = QGraphicsRectItem(-15, -20, 80, 110)
         self.bg.setBrush(QBrush(QColor("#CCCCCB")))  # Тот самый сине-серый цвет
         self.bg.setPen(QPen(Qt.GlobalColor.black, 3))  # Жирная черная рамка
         self.addToGroup(self.bg)
