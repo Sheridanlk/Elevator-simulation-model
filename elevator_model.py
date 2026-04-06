@@ -12,11 +12,11 @@ class ElevatorModel:
         self.FLOORS = {1: 0.0, 2: 3, 3: 6}
         self.OFFSET = 0.8
         self.SENSOR_TYPES = [
-            ("up", self.OFFSET),  # Верхний (1 * 0.7)
-            ("mid", self.OFFSET * 0),  # Средний (0 * 0.7)
-            ("down", self.OFFSET * -1)  # Нижний  (-1 * 0.7)
+            ("up", self.OFFSET),
+            ("mid", self.OFFSET * 0),
+            ("down", self.OFFSET * -1)
         ]
-        self.SENSOR_WIDTH = 0.1
+        self.SENSOR_WIDTH = 0.05
 
         self.CABIN_HEIGHT = 1.5
         self.SAFETY_MARGIN = 0.5
@@ -58,8 +58,8 @@ class ElevatorModel:
             s[f"f{f}_down"] = abs(self.position - (h - self.OFFSET)) < self.SENSOR_WIDTH
 
         # Дверей
-        s["vko"] = self.door_pos >= 0.95
-        s["vkz"] = self.door_pos <= 0.05
+        s["vko"] = self.door_pos >= 1
+        s["vkz"] = self.door_pos <= 0
         return s
 
     def get_faults(self):

@@ -153,6 +153,7 @@ class ElevatorSimulator(QMainWindow):
         # Получаем датчики
         sensors = self.model.get_sensors()
 
+        # Установка выходов
         if self.radio_controller.isChecked():
             self.gpio.write_outputs(sensors)
 

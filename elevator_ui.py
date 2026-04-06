@@ -12,31 +12,39 @@ class ElevatorCabin(QGraphicsItemGroup):
         super().__init__()
 
         # Кабина
-        self.body = QGraphicsRectItem(0, 0, 220, 230)
-        #self.body = QGraphicsSvgItem("Assets/cabin.svg")
-        self.body.setBrush(QBrush(QColor("#34495e")))
+        # self.body = QGraphicsRectItem(0, 0, 220, 230)
+        # self.body.setBrush(QBrush(QColor("#34495e")))
+        self.body = QGraphicsSvgItem("Assets/cabin.svg")
         self.addToGroup(self.body)
 
-        # Левая и правая створки
-        self.door_l = QGraphicsRectItem(35, 20, 75, 190)
-        #self.door_l = QGraphicsSvgItem("Assets/door_left.svg")
-        self.door_l.setBrush(QBrush(QColor("#bdc3c7")))
-        self.addToGroup(self.door_l)
+        # Рамка для клиппинга дверей
+        self.door_viewport = QGraphicsRectItem(36, 20, 148, 190, self)
+        self.door_viewport.setPen(QPen(Qt.PenStyle.NoPen))
+        self.door_viewport.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.door_viewport.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemClipsChildrenToShape)
 
-        self.door_r = QGraphicsRectItem(110, 20, 75, 190)
-        #self.door_r = QGraphicsSvgItem("Assets/door_right.svg")
-        self.door_r.setBrush(QBrush(QColor("#bdc3c7")))
-        self.addToGroup(self.door_r)
+        # Левая и правая двери
+        # self.door_l = QGraphicsRectItem(35, 20, 75, 190)
+        # self.door_l.setBrush(QBrush(QColor("#bdc3c7")))
+        self.left_door_container = QGraphicsItemGroup(self.door_viewport)
+        self.left_door_container.setPos(35, 20)  # Ставим контейнер там, где должна быть дверь
+        self.door_l = QGraphicsSvgItem("Assets/door.svg")
+        self.door_l.setParentItem(self.left_door_container)
+
+        # self.door_r = QGraphicsRectItem(110, 20, 75, 190)
+        # self.door_r.setBrush(QBrush(QColor("#bdc3c7")))
+        self.right_door_container = QGraphicsItemGroup(self.door_viewport)
+        self.right_door_container.setPos(110, 20)
+        self.door_r = QGraphicsSvgItem("Assets/door.svg")
+        self.door_r.setParentItem(self.right_door_container)
 
         # Датчики дверей ВКО/ВКЗ
-        # self.led_vko = QGraphicsEllipseItem(15, -15, 10, 10)
-        # self.led_vkz = QGraphicsEllipseItem(55, -15, 10, 10)
 
-        self.led_vko = Sensor("ВКО", width=35, height=20)
+        self.led_vko = Sensor("ВКО", width=35, height=18)
         self.led_vko.setPos(70, 0)
         self.addToGroup(self.led_vko)
 
-        self.led_vkz = Sensor("ВКЗ", width=35, height=20)
+        self.led_vkz = Sensor("ВКЗ", width=35, height=18)
         self.led_vkz.setPos(115, 0)
         self.addToGroup(self.led_vkz)
 
@@ -101,13 +109,14 @@ class ElevatorView(QGraphicsView):
         # Создаем объекты
         self._init_shaft()
         self._init_floor_sensors()
+        self._init_floor_panels()
 
         self.cabin = ElevatorCabin()
         self.scene.addItem(self.cabin)
 
     def _init_shaft(self):
 
-        self.shaft_svg = QGraphicsSvgItem("Assets/vent.svg")
+        self.shaft_svg = QGraphicsSvgItem("Assets/vent3.svg")
         self.shaft_svg.setZValue(-1)
         self.shaft_svg.setPos(0, 0)
         self.scene.addItem(self.shaft_svg)
@@ -135,6 +144,20 @@ class ElevatorView(QGraphicsView):
                 sensor.setPos(x_pos, y_pos)
                 self.scene.addItem(sensor)
                 self.floor_leds[f"f{f}_{s_type}"] = sensor
+    def _init_floor_panels(self):
+        PANEL_X_LINE = 800
+        self.floor_call_panels = {}
+
+        for floor_num, y_mid in self.model.FLOORS.items():
+            panel = FloorPanel(floor_num)
+            self.scene.addItem(panel)
+
+            y_pos = self.ground_y - y_mid * self.scale_m - 50
+            x_pos = PANEL_X_LINE + 20
+
+            panel.setPos(x_pos, y_pos)
+
+            self.floor_call_panels[floor_num] = panel
 
     def update_ui(self, sensors):
         # Позиция кабины
@@ -161,7 +184,6 @@ class Toast(QFrame):
         super().__init__(parent)
         self.setFixedSize(280, 45)
 
-        # Цвета: красный для алармов, темно-серый для инфо
         bg_color = "#c0392b" if is_error else "#2c3e50"
 
         self.setStyleSheet(f"""
@@ -181,7 +203,8 @@ class Toast(QFrame):
 
         # Жесткая позиция: справа снизу с небольшим отступом
         margin = 20
-        x = parent.width() - self.width() - margin
+        # x = parent.width() - self.width() - margin
+        x = margin
         y = parent.height() - self.height() - margin
         self.move(x, y)
         self.show()
@@ -228,6 +251,7 @@ class ElevatorControlBlock(QWidget):
             self.lamp.setStyleSheet("background-color: #00FF00; border-radius: 6px; border: 1px solid #00FF00;")
         else:
             self.lamp.setStyleSheet("background-color: #004400; border-radius: 6px; border: 1px solid #333;")
+
 class CabinPanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -247,3 +271,41 @@ class CabinPanel(QFrame):
             main_layout.addWidget(unit)
 
         self.setLayout(main_layout)
+
+
+class FloorPanel(QGraphicsItemGroup):
+    def __init__(self, floor_num, parent=None):
+        super().__init__(parent)
+        self.floor_num = floor_num
+
+        self.bg = QGraphicsRectItem(-15, -20, 80, 120)
+        self.bg.setBrush(QBrush(QColor("#CCCCCB")))  # Тот самый сине-серый цвет
+        self.bg.setPen(QPen(Qt.GlobalColor.black, 3))  # Жирная черная рамка
+        self.addToGroup(self.bg)
+
+        # 1. ЛАМПОЧКА (Зеленый "батончик" сверху)
+        # Делаем ее вытянутой (35x12), как в коде кабины
+        self.lamp = QGraphicsRectItem(10, 0, 30, 12)
+        self.lamp.setBrush(QBrush(QColor("#004400")))  # Темно-зеленый (выкл)
+        self.lamp.setPen(QPen(QColor("#222222"), 1))
+        # Скругляем углы (в QGraphicsRectItem это делается через метод или отрисовку,
+        # но для простоты на малинке оставим прямыми или используем Ellipse)
+        self.addToGroup(self.lamp)
+
+        # 2. КНОПКА (Большой серый квадрат 55x55)
+        self.button = QGraphicsRectItem(0, 20, 50, 50)
+        self.button.setBrush(QBrush(QColor("#666666")))  # Цвет как в кабине
+        self.button.setPen(QPen(QColor("#444444"), 3))  # Жирная рамка 3px
+        self.addToGroup(self.button)
+
+
+
+
+    def set_lamp_state(self, active):
+        color = QColor("#00FF00") if active else QColor("#004400")
+        self.lamp.setBrush(QBrush(color))
+        # Если активно, можно добавить "свечение" (убрать рамку)
+        if active:
+            self.lamp.setPen(QPen(QColor("#00FF00"), 1))
+        else:
+            self.lamp.setPen(QPen(QColor("#222222"), 1))
