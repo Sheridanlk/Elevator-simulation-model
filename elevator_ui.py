@@ -179,7 +179,6 @@ class ElevatorView(QGraphicsView):
         self.floor_buttons_state[floor_num] = 0.2
 
     def update_timers(self, dt):
-
         for f in self.floor_buttons_state:
             if self.floor_buttons_state[f] > 0:
                 self.floor_buttons_state[f] -= dt

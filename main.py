@@ -134,6 +134,7 @@ class ElevatorSimulator(QMainWindow):
 
         # ОБРАБОТКА ТАЙМЕРОВ КНОПОК
         self.cabin_panel.update_timers(dt)
+        self.view.update_timers(dt)
 
         # Читаем состояние кнопок
         if self.radio_manual.isChecked():
