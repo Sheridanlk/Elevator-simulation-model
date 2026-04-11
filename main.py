@@ -131,7 +131,6 @@ class ElevatorSimulator(QMainWindow):
         self.lift_group.setEnabled(True)
         self.door_group.setEnabled(True)
         self.speed_group.setEnabled(True)
-        plc_inputs = {}
 
         # ОБРАБОТКА ТАЙМЕРОВ КНОПОК
         self.cabin_panel.update_timers(dt)
@@ -169,7 +168,7 @@ class ElevatorSimulator(QMainWindow):
         if self.radio_controller.isChecked():
             combined_outputs = sensors.copy()
             for floor, time_left in self.cabin_panel.buttons_state.items():
-                combined_outputs[f'btn_с{floor}'] = (time_left > 0)
+                combined_outputs[f"btn_с{floor}"] = (time_left > 0)
 
             self.gpio.write_outputs(combined_outputs)
 
