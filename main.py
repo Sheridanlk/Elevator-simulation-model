@@ -168,7 +168,7 @@ class ElevatorSimulator(QMainWindow):
         if self.radio_controller.isChecked():
             combined_outputs = sensors.copy()
             for floor, time_left in self.cabin_panel.buttons_state.items():
-                combined_outputs[f"btn_с{floor}"] = (time_left > 0)
+                combined_outputs[f"btn_c{floor}"] = (time_left > 0)
 
             self.gpio.write_outputs(combined_outputs)
 
