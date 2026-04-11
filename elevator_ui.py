@@ -1,7 +1,7 @@
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsItemGroup, \
     QFrame, QVBoxLayout, QLabel, QGraphicsTextItem, QGraphicsPathItem
-from PyQt6.QtCore import Qt, QRectF, QTimer
+from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter, QPen, QFont, QPainterPath
 from PyQt6.QtGui import QColor, QBrush
 
@@ -103,6 +103,7 @@ class ElevatorView(QGraphicsView):
         # Для панелей на этажах
         self.floor_buttons_state = {1: 0.0, 2: 0.0, 3: 0.0}
 
+
         # Создаем объекты
         self._init_shaft()
         self._init_floor_sensors()
@@ -171,7 +172,6 @@ class ElevatorView(QGraphicsView):
             active = sensors.get(key, False)
             led.set_active(active)
 
-
     def resizeEvent(self, event):
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
@@ -231,9 +231,6 @@ class FloorPanel(QGraphicsItemGroup):
         self.floor_num = floor_num
         self.press_callback = press_callback
 
-        self.BTN_NORMAL = QColor("#666666")
-        self.BTN_PRESSED = QColor("#999999")  # Цвет при нажатии (светлее)
-
         self.bg = QGraphicsRectItem(-15, -20, 80, 110)
         self.bg.setBrush(QBrush(QColor("#CCCCCB")))  # Тот самый сине-серый цвет
         self.bg.setPen(QPen(Qt.GlobalColor.black, 3))  # Жирная черная рамка
@@ -255,5 +252,16 @@ class FloorPanel(QGraphicsItemGroup):
         self.addToGroup(self.button)
 
     def mousePressEvent(self, event):
+        # Если нажали в область кнопки (примерно)
         if self.press_callback:
             self.press_callback(self.floor_num)
+        # Визуальный отклик (опционально, можно чуть изменить цвет при клике)
+        super().mousePressEvent(event)
+
+    def set_led(self, active):
+        color = QColor("#00FF00") if active else QColor("#004400")
+        self.lamp.setBrush(QBrush(color))
+        if active:
+            self.lamp.setPen(QPen(QColor("#00FF00"), 1))
+        else:
+            self.lamp.setPen(QPen(QColor("#222222"), 1))
