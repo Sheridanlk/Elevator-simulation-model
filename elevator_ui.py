@@ -12,8 +12,6 @@ class ElevatorCabin(QGraphicsItemGroup):
         super().__init__()
 
         # Кабина
-        # self.body = QGraphicsRectItem(0, 0, 220, 230)
-        # self.body.setBrush(QBrush(QColor("#34495e")))
         self.body = QGraphicsSvgItem("Assets/cabin.svg")
         self.addToGroup(self.body)
 
@@ -24,15 +22,11 @@ class ElevatorCabin(QGraphicsItemGroup):
         self.door_viewport.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemClipsChildrenToShape)
 
         # Левая и правая двери
-        # self.door_l = QGraphicsRectItem(35, 20, 75, 190)
-        # self.door_l.setBrush(QBrush(QColor("#bdc3c7")))
         self.left_door_container = QGraphicsItemGroup(self.door_viewport)
-        self.left_door_container.setPos(35, 20)  # Ставим контейнер там, где должна быть дверь
+        self.left_door_container.setPos(35, 20)
         self.door_l = QGraphicsSvgItem("Assets/door.svg")
         self.door_l.setParentItem(self.left_door_container)
 
-        # self.door_r = QGraphicsRectItem(110, 20, 75, 190)
-        # self.door_r.setBrush(QBrush(QColor("#bdc3c7")))
         self.right_door_container = QGraphicsItemGroup(self.door_viewport)
         self.right_door_container.setPos(110, 20)
         self.door_r = QGraphicsSvgItem("Assets/door.svg")
@@ -51,7 +45,7 @@ class ElevatorCabin(QGraphicsItemGroup):
 
 
     def set_door_position(self, value):
-        offset = value * 75  # Ширина сдвига
+        offset = value * 75  # Ширина открытия
         self.door_l.setPos(-offset, 0)
         self.door_r.setPos(offset, 0)
 
@@ -203,74 +197,13 @@ class Toast(QFrame):
 
         # Жесткая позиция: справа снизу с небольшим отступом
         margin = 20
-        # x = parent.width() - self.width() - margin
         x = margin
         y = parent.height() - self.height() - margin
         self.move(x, y)
         self.show()
 
 
-class ElevatorControlBlock(QWidget):
-    def __init__(self, floor_num):
-        super().__init__()
-        layout = QVBoxLayout()
-        layout.setSpacing(8)  # Расстояние между лампой и кнопкой
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # 1. Лампочка (Индикатор, которым управляет ПЛК)
-        self.lamp = QLabel()
-        self.lamp.setFixedSize(35, 15)
-        # Темно-зеленый (выключена) по умолчанию
-        self.lamp.setStyleSheet("background-color: #004400; border-radius: 6px; border: 1px solid #333;")
-
-        # 2. Кнопка приказа
-        self.btn = QPushButton()
-        self.btn.setFixedSize(55, 55)
-        self.btn.setStyleSheet("""
-            QPushButton {
-                background-color: #666666; 
-                border: 3px solid #444444;
-                border-radius: 4px;
-            }
-            QPushButton:pressed { background-color: #888888; }
-        """)
-
-        # 3. Текст
-        label = QLabel(f"Этаж {floor_num}")
-        label.setStyleSheet("color: #111; font-weight: bold; font-family: Arial; font-size: 13px;")
-
-        layout.addWidget(self.lamp, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self.setLayout(layout)
-
-    def set_led(self, state):
-        if state:
-            # Ярко-зеленый (включена)
-            self.lamp.setStyleSheet("background-color: #00FF00; border-radius: 6px; border: 1px solid #00FF00;")
-        else:
-            self.lamp.setStyleSheet("background-color: #004400; border-radius: 6px; border: 1px solid #333;")
-
-class CabinPanel(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedWidth(130)
-        # Светло-серый фон как на твоем фото
-        self.setStyleSheet("background-color: #E0E0E0; border: 2px solid #BCBCBC; border-radius: 5px;")
-
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 20, 10, 20)
-        main_layout.setSpacing(30)  # Расстояние между этажами
-
-        self.floor_units = {}
-
-        for i in [3, 2, 1]:
-            unit = ElevatorControlBlock(i)
-            self.floor_units[i] = unit
-            main_layout.addWidget(unit)
-
-        self.setLayout(main_layout)
 
 
 class FloorPanel(QGraphicsItemGroup):

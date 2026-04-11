@@ -16,7 +16,7 @@ class ElevatorModel:
             ("mid", self.OFFSET * 0),
             ("down", self.OFFSET * -1)
         ]
-        self.SENSOR_WIDTH = 0.05
+        self.SENSOR_WIDTH = 0.075
 
         self.CABIN_HEIGHT = 1.5
         self.SAFETY_MARGIN = 0.5

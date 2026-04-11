@@ -1,10 +1,10 @@
 # main.py
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, \
-    QGroupBox, QRadioButton, QFrame
+    QGroupBox, QRadioButton, QFrame, QLabel
 from PyQt6.QtCore import QTimer, Qt
 from elevator_model import ElevatorModel
-from elevator_ui import ElevatorView, Toast, CabinPanel
+from elevator_ui import ElevatorView, Toast
 from gpio_handler import GPIOHandler
 
 
@@ -12,7 +12,7 @@ class ElevatorSimulator(QMainWindow):
     def __init__(self):
         super().__init__()
         self.gpio = GPIOHandler()
-        self.setWindowTitle("Лифт-Симулятор ПЛК")
+        self.setWindowTitle("Лифт")
         #self.setStyleSheet("background-color: #1e1e1e; color: #ecf0f1;")
         self.active_alarms = {}
 
@@ -131,6 +131,15 @@ class ElevatorSimulator(QMainWindow):
         self.lift_group.setEnabled(True)
         self.door_group.setEnabled(True)
         self.speed_group.setEnabled(True)
+        plc_inputs = {}
+
+        # ОБРАБОТКА ТАЙМЕРОВ КНОПОК
+        self.cabin_panel.update_timers(dt)
+        # Формируем словарь состояний True/False для записи в GPIO
+        cabin_presses = {
+            f: (time > 0) for f, time in self.cabin_panel.buttons_state.items()
+        }
+
         # Читаем состояние кнопок
         if self.radio_manual.isChecked():
             cmds = {
@@ -144,18 +153,27 @@ class ElevatorSimulator(QMainWindow):
             self.lift_group.setEnabled(False)
             self.door_group.setEnabled(False)
             self.speed_group.setEnabled(False)
-            cmds = self.gpio.read_inputs()
+            plc_inputs = self.gpio.read_inputs()
+            cmds = plc_inputs
 
+        for floor in [1, 2, 3]:
+            lamp_key = f'l_c{floor}'
+            if lamp_key in plc_inputs:
+                self.cabin_panel.floor_units[floor].set_led(plc_inputs[lamp_key])
 
         # Считаем физику
         self.model.update(dt, cmds)
 
-        # Получаем датчики
+        # Получаем датчики с модели
         sensors = self.model.get_sensors()
 
         # Установка выходов
         if self.radio_controller.isChecked():
-            self.gpio.write_outputs(sensors)
+            combined_outputs = sensors.copy()
+            for floor, time_left in self.cabin_panel.buttons_state.items():
+                combined_outputs[f'btn_с{floor}'] = (time_left > 0)
+
+            self.gpio.write_outputs(combined_outputs)
 
         # Отрисовываем
         self.view.update_ui(sensors)
@@ -187,7 +205,81 @@ class ElevatorSimulator(QMainWindow):
         self.view.update_ui(self.model.get_sensors())
 
         print("System Reset Performed")
+class ElevatorControlBlock(QWidget):
+    def __init__(self, floor_num):
+        super().__init__()
+        layout = QVBoxLayout()
+        layout.setSpacing(8)  # Расстояние между лампой и кнопкой
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # 1. Лампочка (Индикатор, которым управляет ПЛК)
+        self.lamp = QLabel()
+        self.lamp.setFixedSize(35, 15)
+        # Темно-зеленый (выключена) по умолчанию
+        self.lamp.setStyleSheet("background-color: #004400; border-radius: 6px; border: 1px solid #333;")
+
+        # 2. Кнопка приказа
+        self.btn = QPushButton()
+        self.btn.setFixedSize(55, 55)
+        self.btn.setStyleSheet("""
+            QPushButton {
+                background-color: #666666; 
+                border: 3px solid #444444;
+                border-radius: 4px;
+            }
+            QPushButton:pressed { background-color: #888888; }
+        """)
+
+        # 3. Текст
+        label = QLabel(f"Этаж {floor_num}")
+        label.setStyleSheet("color: #111; font-weight: bold; font-family: Arial; font-size: 13px;")
+
+        layout.addWidget(self.lamp, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.setLayout(layout)
+
+    def set_led(self, state):
+        if state:
+            # Ярко-зеленый (включена)
+            self.lamp.setStyleSheet("background-color: #00FF00; border-radius: 6px; border: 1px solid #00FF00;")
+        else:
+            self.lamp.setStyleSheet("background-color: #004400; border-radius: 6px; border: 1px solid #333;")
+
+class CabinPanel(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(130)
+        # Светло-серый фон как на твоем фото
+        self.setStyleSheet("background-color: #E0E0E0; border: 2px solid #BCBCBC; border-radius: 5px;")
+
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(10, 20, 10, 20)
+        main_layout.setSpacing(30)  # Расстояние между этажами
+
+        self.buttons_state = {1: 0.0, 2: 0.0, 3: 0.0}
+
+        self.floor_units = {}
+
+        for i in [3, 2, 1]:
+            unit = ElevatorControlBlock(i)
+            unit.btn.clicked.connect(lambda ch, f=i: self.press_button(f))
+            self.floor_units[i] = unit
+            main_layout.addWidget(unit)
+
+        self.setLayout(main_layout)
+
+    def press_button(self, floor):
+        self.buttons_state[floor] = 0.2
+        print(f"Кнопка {floor} нажата в UI, флаг взведен")
+
+    def update_timers(self, dt):
+        for floor in self.buttons_state:
+            if self.buttons_state[floor] > 0:
+                self.buttons_state[floor] -= dt
+                if self.buttons_state[floor] < 0:
+                    self.buttons_state[floor] = 0
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
