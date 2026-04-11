@@ -1,7 +1,7 @@
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsItemGroup, \
-    QFrame, QVBoxLayout, QLabel, QPushButton, QWidget, QGraphicsTextItem, QGraphicsPathItem
-from PyQt6.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, QRectF
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsItemGroup, \
+    QFrame, QVBoxLayout, QLabel, QGraphicsTextItem, QGraphicsPathItem
+from PyQt6.QtCore import Qt, QRectF, QTimer
 from PyQt6.QtGui import QPainter, QPen, QFont, QPainterPath
 from PyQt6.QtGui import QColor, QBrush
 
@@ -100,6 +100,9 @@ class ElevatorView(QGraphicsView):
         self.scale_m = 300.0/3.0
         self.ground_y = 1010 - self.cabin_height_px/2
 
+        # Для панелей на этажах
+        self.floor_buttons_state = {1: 0.0, 2: 0.0, 3: 0.0}
+
         # Создаем объекты
         self._init_shaft()
         self._init_floor_sensors()
@@ -143,7 +146,7 @@ class ElevatorView(QGraphicsView):
         self.floor_call_panels = {}
 
         for floor_num, y_mid in self.model.FLOORS.items():
-            panel = FloorPanel(floor_num)
+            panel = FloorPanel(floor_num, self.handle_floor_click)
             self.scene.addItem(panel)
 
             y_pos = self.ground_y - y_mid * self.scale_m - 50
@@ -168,8 +171,27 @@ class ElevatorView(QGraphicsView):
             active = sensors.get(key, False)
             led.set_active(active)
 
+
     def resizeEvent(self, event):
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def handle_floor_click(self, floor_num):
+        self.floor_buttons_state[floor_num] = 0.2
+
+    def update_timers(self, dt):
+
+        for f in self.floor_buttons_state:
+            if self.floor_buttons_state[f] > 0:
+                self.floor_buttons_state[f] -= dt
+
+    def get_button_states(self):
+        return {f"btn_f{f}": (t > 0) for f, t in self.floor_buttons_state.items()}
+
+    def update_lamps(self, plc_inputs):
+        for f, panel in self.floor_call_panels.items():
+            key = f"l_f{f}"
+            if key in plc_inputs:
+                panel.set_led(plc_inputs[key])
 
 
 
@@ -203,13 +225,14 @@ class Toast(QFrame):
         self.show()
 
 
-
-
-
 class FloorPanel(QGraphicsItemGroup):
-    def __init__(self, floor_num, parent=None):
+    def __init__(self, floor_num,press_callback, parent=None):
         super().__init__(parent)
         self.floor_num = floor_num
+        self.press_callback = press_callback
+
+        self.BTN_NORMAL = QColor("#666666")
+        self.BTN_PRESSED = QColor("#999999")  # Цвет при нажатии (светлее)
 
         self.bg = QGraphicsRectItem(-15, -20, 80, 110)
         self.bg.setBrush(QBrush(QColor("#CCCCCB")))  # Тот самый сине-серый цвет
@@ -231,14 +254,6 @@ class FloorPanel(QGraphicsItemGroup):
         self.button.setPen(QPen(QColor("#444444"), 3))  # Жирная рамка 3px
         self.addToGroup(self.button)
 
-
-
-
-    def set_lamp_state(self, active):
-        color = QColor("#00FF00") if active else QColor("#004400")
-        self.lamp.setBrush(QBrush(color))
-        # Если активно, можно добавить "свечение" (убрать рамку)
-        if active:
-            self.lamp.setPen(QPen(QColor("#00FF00"), 1))
-        else:
-            self.lamp.setPen(QPen(QColor("#222222"), 1))
+    def mousePressEvent(self, event):
+        if self.press_callback:
+            self.press_callback(self.floor_num)

@@ -151,6 +151,7 @@ class ElevatorSimulator(QMainWindow):
             plc_inputs = self.gpio.read_inputs()
             cmds = plc_inputs
 
+            self.view.update_lamps(plc_inputs)
             for floor in [1, 2, 3]:
                 lamp_key = f'l_c{floor}'
                 if lamp_key in plc_inputs:
@@ -170,6 +171,7 @@ class ElevatorSimulator(QMainWindow):
             for floor, time_left in self.cabin_panel.buttons_state.items():
                 combined_outputs[f"btn_c{floor}"] = (time_left > 0)
 
+            combined_outputs.update(self.view.get_button_states())
             self.gpio.write_outputs(combined_outputs)
 
         # Отрисовываем
