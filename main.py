@@ -170,7 +170,7 @@ class ElevatorSimulator(QMainWindow):
         # Установка выходов
         if self.radio_controller.isChecked():
             combined_outputs = sensors.copy()
-            for floor, time_left in self.cabin_panel.buttons_state.items():
+            for floor, time_left in cabin_presses.items():
                 combined_outputs[f'btn_с{floor}'] = (time_left > 0)
 
             self.gpio.write_outputs(combined_outputs)
@@ -218,7 +218,6 @@ class ElevatorControlBlock(QWidget):
         # Темно-зеленый (выключена) по умолчанию
         self.lamp.setStyleSheet("background-color: #004400; border-radius: 6px; border: 1px solid #333;")
 
-        # 2. Кнопка приказа
         self.btn = QPushButton()
         self.btn.setFixedSize(55, 55)
         self.btn.setStyleSheet("""
