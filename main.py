@@ -135,10 +135,6 @@ class ElevatorSimulator(QMainWindow):
 
         # ОБРАБОТКА ТАЙМЕРОВ КНОПОК
         self.cabin_panel.update_timers(dt)
-        # Формируем словарь состояний True/False для записи в GPIO
-        cabin_presses = {
-            f: (time > 0) for f, time in self.cabin_panel.buttons_state.items()
-        }
 
         # Читаем состояние кнопок
         if self.radio_manual.isChecked():
@@ -156,10 +152,12 @@ class ElevatorSimulator(QMainWindow):
             plc_inputs = self.gpio.read_inputs()
             cmds = plc_inputs
 
-        for floor in [1, 2, 3]:
-            lamp_key = f'l_c{floor}'
-            if lamp_key in plc_inputs:
-                self.cabin_panel.floor_units[floor].set_led(plc_inputs[lamp_key])
+            for floor in [1, 2, 3]:
+                lamp_key = f'l_c{floor}'
+                if lamp_key in plc_inputs:
+                    self.cabin_panel.floor_units[floor].set_led(plc_inputs[lamp_key])
+
+
 
         # Считаем физику
         self.model.update(dt, cmds)
@@ -170,7 +168,7 @@ class ElevatorSimulator(QMainWindow):
         # Установка выходов
         if self.radio_controller.isChecked():
             combined_outputs = sensors.copy()
-            for floor, time_left in cabin_presses.items():
+            for floor, time_left in self.cabin_panel.buttons_state.items():
                 combined_outputs[f'btn_с{floor}'] = (time_left > 0)
 
             self.gpio.write_outputs(combined_outputs)
