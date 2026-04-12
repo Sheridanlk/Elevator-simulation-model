@@ -283,6 +283,5 @@ class CabinPanel(QFrame):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     sim = ElevatorSimulator()
-    sim.resize(800, 600)
-    sim.show()
+    sim.showMaximized()
     sys.exit(app.exec())
